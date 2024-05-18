@@ -1,0 +1,291 @@
+
+```{r}
+rm(list = ls())
+options(stringsAsFactors = F)
+library(dplyr)
+library(plyr)
+library(Seurat)
+library(devtools)
+library(SeuratData)
+library(patchwork)
+library(tidyverse)
+library(ggplot2)
+library(celldex)
+library(SingleR)
+library(BiocParallel)
+library(ggalluvial)
+```
+
+```{r}
+pbmc_NSFK <- readRDS(file ="SAVE/pbmc_NSFK.Rds")
+dim(pbmc_NSFK)
+length(levels(Idents(pbmc_NSFK)))
+
+``` 
+
+```{r}
+
+p1 <- DimPlot(pbmc_NSFK, reduction = "umap", group.by = "group")
+p2 <- DimPlot(pbmc_NSFK, reduction = "umap", label = TRUE, repel = TRUE)
+p1 + p2
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK) <-"RNA"
+
+celltype_marker=c(
+  "KRT1","KRT10","KRT14","KRT5", #Keratinocytes
+  "COL1A1","DCN", "COL1A2","COL3A1", #Fibroblasts
+  "ACTA2", "TAGLN", "TPM2", #Smooth muscle cells
+  "PECAM1","VWF", #Endothelial cells
+  "MLANA", "PMEL", #Melanocytes
+  "CD19","CD27","CD20","CD38","CD74", #B cells
+  "CD3D","CD3E","CD4","CD8A",'ITGAE','CD8', #T cells
+  'FCER1A',"TPSAB1","TPSB2",'CD117','CD25','CD203c','SLC18A2','KIT', #Mast cells
+  "CD163","CD68",'C1QA','C1QB','MRC1','CD11b','MSR1','ITGAM','ITGAX','SIGLEC7', #Macrophages
+  "FABP4",'ADIPOR1','ADIPOR2',#adipocytes
+  "AQP5", #Sweat gland cells
+  "NRXN1","SCN7A", #Neuron
+  "S100B","NGFR","PMP22", #Schwann cells
+  "PTPRC",#Immune cells
+  'CD105','CD73','CD90','STRO-1','CD44','CD34','CD70'
+  )
+
+VlnPlot(pbmc_NSFK,features = celltype_marker,pt.size = 0,ncol = 5,combine = F)
+```
+
+```{r eval=FALSE, include=FALSE}
+
+ref <- celldex::HumanPrimaryCellAtlasData()
+scRNA = pbmc_NSFK
+pred.scRNA <- SingleR(test = scRNA@assays$RNA@data, 
+                      ref = ref,
+                      labels = ref$label.main, 
+                      clusters = scRNA@active.ident)
+pred.scRNA$pruned.labels
+
+plotScoreHeatmap(pred.scRNA, clusters=pred.scRNA@rownames, fontsize.row = 9,show_colnames = T)
+```
+
+```{r}
+new.cluster.ids <- c("T cells", #0
+                     "Fibroblasts", #1
+                     "Keratinocytes",#2
+                     "Fibroblasts",#3
+                     "Keratinocytes",#4
+                     "Keratinocytes",#5
+                     "Endothelial cells",#6
+                     "Keratinocytes",#7
+                     "Endothelial cells",#8
+                     "Endothelial cells",#9
+                     "Keratinocytes", #10
+                     "Smooth muscle cells",#11
+                     "Mononeuclear phagocytes",#12
+                     "Endothelial cells",#13
+                     "Smooth muscle cells",#14
+                     "Sweat gland cells",#15
+                     "Sweat gland cells",#16
+                     "Mast cells",#17
+                     "Neuron",#18
+                     "Keratinocytes",#19
+                     "Endothelial cells",#20
+                     "Smooth muscle cells"#21
+                     )
+
+names(new.cluster.ids) <- levels(pbmc_NSFK)
+pbmc_NSFK <- RenameIdents(pbmc_NSFK, new.cluster.ids)
+
+p3 <- DimPlot(pbmc_NSFK, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 0.5) + NoLegend()
+p3
+p4 <- DimPlot(pbmc_NSFK, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1,split.by = "group") + NoLegend()
+p4
+
+ggsave(p3,filename = "output/p3.jpg",width = 10,height = 10)
+ggsave(p4,filename = "output/p4.jpg",width = 15,height = 10)
+
+save(pbmc_NSFK,file = "SAVE/pbmc_NSFK_AN.Rdata")
+```
+
+```{r}
+ident_df <- data.frame(cell=names(Idents(pbmc_NSFK)), cluster=Idents(pbmc_NSFK))
+
+# Macrophage Monocytes
+pbmc_NSFK_Mononeuclear_phagocytes <- subset(pbmc_NSFK, cells=as.vector(ident_df[ident_df$cluster=="Mononeuclear phagocytes",1]))
+dim(pbmc_NSFK_Mononeuclear_phagocytes)
+save(pbmc_NSFK_Mononeuclear_phagocytes ,file = "SAVE/pbmc_NSFK_Mononeuclear_phagocytes.Rdata")
+
+# Fibroblasts
+pbmc_NSFK_Fibroblasts <- subset(pbmc_NSFK, cells=as.vector(ident_df[ident_df$cluster=="Fibroblasts",1]))
+dim(pbmc_NSFK_Fibroblasts)
+save(pbmc_NSFK_Fibroblasts ,file = "SAVE/pbmc_NSFK_Fibroblasts.Rdata")
+
+# T cells
+pbmc_NSFK_T_cells <- subset(pbmc_NSFK, cells=as.vector(ident_df[ident_df$cluster=="T cells",1]))
+dim(pbmc_NSFK_T_cells)
+save(pbmc_NSFK_T_cells ,file = "SAVE/pbmc_NSFK_T_cells.Rdata")
+
+# Endothelial cells
+pbmc_NSFK_Endothelial_cells <- subset(pbmc_NSFK, cells=as.vector(ident_df[ident_df$cluster=="Endothelial cells",1]))
+dim(pbmc_NSFK_Endothelial_cells)
+save(pbmc_NSFK_Endothelial_cells ,file = "SAVE/pbmc_NSFK_Endothelial_cells.Rdata")
+```
+
+```{r}
+rm(list = ls())
+load("SAVE/pbmc_NSFK_AN.Rdata")
+color <- c("#915067","#bda5ac","#376795","#72BCD5","#649b92","#007664","#9a4700","#E76254","#FFD06F")
+
+pbmc_NSFK$group <- ordered(pbmc_NSFK$group,c("N","S","F","K"))
+pbmc_NSFK@active.ident <- ordered(pbmc_NSFK@active.ident,c("Smooth muscle cells","Keratinocytes","Fibroblasts","Endothelial cells","Mast cells","Sweat gland cells" ,"Neuron" ,"Mononeuclear phagocytes","T cells"))
+
+UMAPPlot(pbmc_NSFK,group.by = "group",pt.size = 0.01, cols = c("#376795", "#72bcd5", "#ffd06f", "#e76254"))
+UMAPPlot(pbmc_NSFK,split.by = "group",pt.size = 0.01, cols = color)
+
+cluster  <- Idents(pbmc_NSFK)
+name <- as.character(pbmc_NSFK@meta.data[["group"]])
+b <- as.data.frame(cluster,name)
+b$number <- 1
+b$name <- row.names(b)
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+levels(b$cluster)
+b$cluster <- ordered(b$cluster,c("Smooth muscle cells","Keratinocytes","Fibroblasts","Endothelial cells","Mast cells","Sweat gland cells" ,"Neuron" ,"Mononeuclear phagocytes","T cells"))
+b$name <- ordered(b$name,c("N","S","F","K"))
+
+p5 <- ggplot(b,aes(x =name,y=percent,fill= cluster))+
+  geom_bar(stat="identity",position="stack")+
+  scale_fill_manual(values = color)+
+  theme_bw()+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL));p5
+
+ggsave(p5,filename = "output/p5.jpg",width = 10,height = 5)
+
+b$name <- ordered(b$name,c("K","F","S","N"))
+#endo 
+endo <- b[b$cluster=="Endothelial cells",]
+endo_nu <- as.data.frame(table(endo$name)) 
+endo_nu$sample <- c(6,2,4,5)
+endo_nu$result <- endo_nu$Freq/endo_nu$sample
+
+endo_p <- ggplot(endo_nu,aes(Var1,result))+
+  geom_bar(stat="identity",position="stack",fill="#72BCD5")+
+  coord_flip()+
+  theme_classic()
+
+#mono 
+mono <- b[b$cluster=="Mononeuclear phagocytes",]
+mono_nu <- as.data.frame(table(mono$name)) 
+mono_nu$sample <- c(6,2,4,5)
+mono_nu$result <- mono_nu$Freq/mono_nu$sample
+
+mono_p <- ggplot(mono_nu,aes(Var1,result))+
+  geom_bar(stat="identity",position="stack",fill="#E76254")+
+  coord_flip()+
+  theme_classic()
+#fib
+fib <- b[b$cluster=="Fibroblasts",]
+fib_nu <- as.data.frame(table(fib$name)) 
+fib_nu$sample <- c(6,2,4,5)
+fib_nu$result <- fib_nu$Freq/fib_nu$sample
+
+fib_p <- ggplot(fib_nu,aes(Var1,result))+
+  geom_bar(stat="identity",position="stack",fill="#376795")+
+  coord_flip()+
+  theme_classic()
+#T cell
+tc <- b[b$cluster=="T cells",]
+tc_nu <- as.data.frame(table(tc$name)) 
+tc_nu$sample <- c(6,2,4,5)
+tc_nu$result <- tc_nu$Freq/tc_nu$sample
+
+tc_p <- ggplot(tc_nu,aes(Var1,result))+
+  geom_bar(stat="identity",position="stack",fill="#FFD06F")+
+  coord_flip()+
+  theme_classic()
+
+endo_p/mono_p|fib_p/tc_p
+```
+
+
+```{r}
+DefaultAssay(pbmc_NSFK) <-"SCT"
+pbmc_NSFK@active.ident <- ordered(pbmc_NSFK@active.ident,c("T cells","Mononeuclear phagocytes","Neuron","Sweat gland cells","Mast cells","Endothelial cells","Fibroblasts","Keratinocytes","Smooth muscle cells"))
+genes_to_check = c("ACTA2", "TPM2", #Smooth muscle cells
+                   "KRT14","KRT5", #Keratinocytes
+                   "DCN", "COL3A1", #Fibroblasts
+                   "PECAM1","VWF", #Endothelial cells
+                   "TPSAB1","TPSB2", #Mast cells
+                   "AQP5",'ITGAE', #Sweat gland cells
+                   "NRXN1","S100B", #Neuron
+                   "CD68",'ITGAX', #Mononeuclear phagocytes
+                   "CD3D","CD3E" #T cells
+                   )
+DotPlot(pbmc_NSFK, features = unique(genes_to_check),cols = c("#eeeeee", "#e76254"))+RotatedAxis()
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK) <-"SCT"
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"KRT5" #Keratinocytes
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#bda5ac"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/KRT5_Keratinocytes.pdf",width = 2.85,height = 3.05)
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"DCN" #Fibroblasts
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#376795"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/DCN_ Fibroblasts.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"TPM2" #Smooth muscle cells
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#915067"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/TPM2_Smooth muscle cells.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"PECAM1" #Endothelial cells
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#72BCD5"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/PECAM1_Endothelial cells.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"CD3D" #T cells
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#FFD06F"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/CD3D_T cells.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"TPSAB1" #Mast cells
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#649b92"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/TPSAB1_Mast cells.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+'ITGAX' #Mononeuclear phagocytes
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#E76254"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/ITGAX_Mononeuclear phagocytes.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(  
+"AQP5" #Sweat gland cells
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#007664"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/AQP5_Sweat gland cells.pdf",width = 2.85,height = 3.05)
+
+
+pbmc_NSFK_fp1 <- FeaturePlot(pbmc_NSFK, features = c(
+"NRXN1" #Neuron
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#9a4700"))+theme(legend.position = "none");pbmc_NSFK_fp1
+ggsave(filename = "D:/Users/Administrator/Desktop/figue/NRXN1_Neuron.pdf",width = 2.85,height = 3.05)
+
+```
+

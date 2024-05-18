@@ -1,0 +1,41 @@
+
+```{r}
+rm(list = ls()) 
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+purrr::walk(list.files('cpplot/',pattern="*.R$",full.names = T),source,.GlobalEnv)
+```
+
+```{r}
+
+ccc_number_heatmap2(pfile = "SAVE/out3/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),ccc.number.max = 300,order.of.celltype = c("Keratinocytes","Sweat_gland_cells","Neuron","Smooth_muscle_cells","Fibroblasts","Endothelial_cells","Monocytes","Macrophages","DC","T_cells","Mast_cells"))#5-6.45size
+
+ccc_number_heatmap2(pfile = "SAVE/out1/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),order.of.celltype = c("SAM","KAM","MF","PIF","SPF","SRF"))#5-6.7size
+
+ccc_number_heatmap2(pfile = "SAVE/out2/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),order.of.celltype = c("SAM","KAM","Veins","Arteries","Capillaries","Lymphatic_ECs"))#5-6.7size
+
+ccc_bubble(pfile="SAVE/out1/pvalues.txt",mfile="SAVE/out1/means.txt")
+
+ccc_bubble(pfile="SAVE/out2/pvalues.txt",mfile="SAVE/out2/means.txt")
+
+```
+
+```{r}
+
+ccc_number_heatmap2(pfile = "SAVE/out6/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),order.of.celltype = c("MAFB_Low","MAFB_High","MF","PIF","SPF","SRF"))#5-6.45size
+
+ccc_number_heatmap2(pfile = "SAVE/out7/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),order.of.celltype = c("MAFB_Low","MAFB_High","Veins","Arteries","Capillaries","Lymphatic_ECs"))#5-6.7size
+
+ccc_number_heatmap2(pfile = "SAVE/out8/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),order.of.celltype = c("MAF_Low","MAF_High","MF","PIF","SPF","SRF"))#5-6.45size
+
+ccc_number_heatmap2(pfile = "SAVE/out9/pvalues.txt",color.palette = c("#376795","#f8ac8c","#e76254"),ccc.number.max = 200,order.of.celltype = c("MAF_Low","MAF_High","Veins","Arteries","Capillaries","Lymphatic_ECs"))#5-6.7size
+
+ccc_bubble(pfile="SAVE/out6/pvalues.txt",mfile="SAVE/out6/means.txt")
+
+ccc_bubble(pfile="SAVE/out7/pvalues.txt",mfile="SAVE/out7/means.txt")
+
+ccc_bubble(pfile="SAVE/out8/pvalues.txt",mfile="SAVE/out8/means.txt")
+
+ccc_bubble(pfile="SAVE/out9/pvalues.txt",mfile="SAVE/out9/means.txt")
+```

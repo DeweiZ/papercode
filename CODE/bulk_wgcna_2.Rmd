@@ -1,0 +1,79 @@
+
+```{r}
+rm(list = ls()) 
+
+library('WGCNA')
+
+options(stringsAsFactors = FALSE)
+allowWGCNAThreads()
+
+load(file = "input/FemaleLiver-01-dataInput.RData")
+
+load(file = "input/networkConstruction-stepByStep.RData")
+```
+
+```{r}
+
+nGenes = ncol(datExpr)
+nSamples = nrow(datExpr)
+
+MEs0 = moduleEigengenes(datExpr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, datTraits, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+
+table(moduleColors)
+```
+
+```{r}
+
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", sep = "")
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3))
+
+pdf('map1.pdf',height = 10,width = 5,onefile = F)
+labeledHeatmap(Matrix = moduleTraitCor, xLabels = names(datTraits), yLabels = names(MEs), ySymbols = names(MEs), colorLabels = T, colors = blueWhiteRed(50), textMatrix = textMatrix, setStdMargins = F, cex.text = 0.5, zlim = c(-1,1), main = paste("Module-trait relationships"))
+dev.off()
+dev.new()
+win.graph(width=5, height=10,pointsize=8)
+
+```
+
+```{r}
+
+modNames = substring(names(MEs), 3)
+
+geneModuleMembership = as.data.frame(cor(datExpr, MEs, use = "p"))
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership 
+ ), nSamples))
+names(geneModuleMembership) = paste("MM", modNames, sep="")
+names(MMPvalue) = paste("p.MM", modNames, sep="")
+
+geneTraitSignificance = as.data.frame(cor(datExpr, datTraits, use = "p"))
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), 
+  nSamples))
+names(geneTraitSignificance) = paste("GS.", names(datTraits), sep="")
+names(GSPvalue) = paste("p.GS.", names(datTraits), sep="")
+```
+
+```{r}
+module = "turquoise"
+column = match(module, modNames)
+moduleGenes = moduleColors==module
+par(mfrow = c(1,1))
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, 
+  column]),abs(geneTraitSignificance[moduleGenes, 1]), xlab = 
+  paste("Module Membership in", module, "module"), ylab = "Gene 
+  significance for group", main = paste("Module membership 
+  vs gene significance"), cex.main = 1.2, cex.lab = 1.2, cex.axis = 
+  1.2, col = 'black')
+```
+
+```{r}
+
+moduleColors[names(datExpr) == 'MAFB']
+
+deg_wg <- names(datExpr)[moduleColors=="turquoise"]
+write.csv(deg_wg,"deg_wgcna.csv")
+datExpr[moduleColors=="turquoise"]
+```

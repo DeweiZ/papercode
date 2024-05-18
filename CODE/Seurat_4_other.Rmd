@@ -1,0 +1,396 @@
+
+```{r}
+rm(list = ls()) 
+library(Seurat)
+library(devtools)
+library(SeuratData)
+library(patchwork)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(clustree)
+library(ggplot2)
+```
+
+```{r}
+
+load(file ="SAVE/pbmc_NSFK_Fibroblasts.Rdata")
+
+DefaultAssay(pbmc_NSFK_Fibroblasts) <- "integrated"
+
+pbmc_NSFK_Fibroblasts <- ScaleData(pbmc_NSFK_Fibroblasts, verbose = FALSE)
+
+pbmc_NSFK_Fibroblasts <- RunPCA(pbmc_NSFK_Fibroblasts, verbose = FALSE)
+
+DimHeatmap(pbmc_NSFK_Fibroblasts, dims = 1:20, cells = 500, balanced = TRUE)
+ElbowPlot(pbmc_NSFK_Fibroblasts,ndims = 20)
+pc.num=1:20
+pbmc_NSFK_Fibroblasts <- FindNeighbors(pbmc_NSFK_Fibroblasts, reduction = "pca", dims = pc.num)
+
+sce <- pbmc_NSFK_Fibroblasts
+sce <- FindClusters(object = sce,resolution = c(seq(.1,1,.1)))
+clustree(sce@meta.data, prefix = "integrated_snn_res.")
+
+pbmc_NSFK_Fibroblasts <- FindClusters(pbmc_NSFK_Fibroblasts, resolution = 0.2)
+length(levels(Idents(pbmc_NSFK_Fibroblasts)))
+
+pbmc_NSFK_Fibroblasts <- RunUMAP(pbmc_NSFK_Fibroblasts, reduction = "pca", dims = pc.num)
+
+p1 <- DimPlot(pbmc_NSFK_Fibroblasts, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_Fibroblasts, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0)
+p1 + p2
+
+p6 <- DimPlot(pbmc_NSFK_Fibroblasts, reduction = "umap", split.by = "group",pt.size = 1.0);p6
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Fibroblasts) <- "RNA"
+
+celltype_marker_2=c("COL12A1","COL5A1","PDLIM7","SPARC","COL11A1","INHBA","SDC","COL1A2","ACTA2","POSTN","COMP","ADAM12","NREP","TNFRSF12SA","CD9"
+                    )
+
+VlnPlot(pbmc_NSFK_Fibroblasts,features = celltype_marker_2,pt.size = 0,ncol = 4,combine = F)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+library(celldex)
+library(SingleR)
+ref <- celldex::MonacoImmuneData()
+library(BiocParallel)
+scRNA = pbmc_NSFK_Fibroblasts
+pred.scRNA <- SingleR(test = scRNA@assays$RNA@data, 
+                      ref = ref,
+                      labels = ref$label.fine, 
+                      clusters = scRNA@active.ident)
+pred.scRNA$pruned.labels
+
+plotScoreHeatmap(pred.scRNA, clusters=pred.scRNA@rownames, fontsize.row = 9,show_colnames = T)
+
+```
+
+```{r}
+new.cluster.ids <- c("PIF", #0
+                     "MF", #1
+                     "PIF", #2
+                     "MF", #3
+                     "SPF", #4
+                     "PIF", #5
+                     "SRF", #6
+                     "SRF" #7
+                     )
+
+names(new.cluster.ids) <- levels(pbmc_NSFK_Fibroblasts)
+pbmc_NSFK_Fibroblasts <- RenameIdents(pbmc_NSFK_Fibroblasts, new.cluster.ids)
+DimPlot(pbmc_NSFK_Fibroblasts, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0,split.by = "group") + NoLegend()
+
+DimPlot(pbmc_NSFK_Fibroblasts, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0) + NoLegend()
+
+dim(pbmc_NSFK_Fibroblasts)
+
+p1 <- DimPlot(pbmc_NSFK_Fibroblasts, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_Fibroblasts, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0,cols=c('PIF'='#2878b5','MF'='#c82423','SRF'='#f8ac8c','SPF'='#9ac9db'))
+p1 + p2
+pM1 <- DimPlot(pbmc_NSFK_Fibroblasts, reduction = "umap", split.by = "group",pt.size = 1,cols=c('PIF'='#2878b5','MF'='#c82423','SRF'='#f8ac8c','SPF'='#9ac9db'))
+pM1
+
+saveRDS(pbmc_NSFK_Fibroblasts,file = "SAVE/pbmc_NSFK_Fibroblasts.Rds")
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Fibroblasts) <- "integrated"
+pbmc_NSFK_Fibroblasts.markers <- FindAllMarkers(pbmc_NSFK_Fibroblasts, logfc.threshold = 0.25, min.pct = 0.1, 
+                          only.pos = T )
+pbmc_NSFK_Fibroblasts.markers %>% group_by(cluster) %>% top_n(n = 30, wt = avg_log2FC)
+
+pbmc_NSFK_Fibroblasts_marker<- pbmc_NSFK_Fibroblasts.markers %>% group_by(cluster) %>% top_n(n = 30, wt = avg_log2FC)
+
+write.csv(pbmc_NSFK_Fibroblasts_marker,file = "outputpbmc_NSFK_Fibroblasts_marker.csv")
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Fibroblasts) <- "SCT"
+
+pbmc_NSFK_Fibroblasts_fp1 <- FeaturePlot(pbmc_NSFK_Fibroblasts, features = c(  
+"CD9","COL11A1","POSTN","COL1A2" #Fibroblasts
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#376795"))+theme(legend.position = "none");
+pbmc_NSFK_Fibroblasts_fp1
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+genes_to_check = c("COL12A1","COL5A2","PDLIM7","SPARC","COL11A1","INHBA","SDC1","COL1A2","ACTA2","POSTN","COMP","ADAM12","NREP","TNFRSF12A","CD9" )
+DotPlot(pbmc_NSFK_Fibroblasts,
+ features = unique(genes_to_check)) + RotatedAxis()
+
+p2=DotPlot(pbmc_NSFK_Fibroblasts, features = unique(genes_to_check)) + RotatedAxis()
+
+```
+
+```{r}
+rm(list = ls()) 
+load(file ="SAVE/pbmc_NSFK_T_cells.Rdata")
+```
+
+```{r}
+DefaultAssay(pbmc_NSFK_T_cells) <- "integrated"
+
+pbmc_NSFK_T_cells <- ScaleData(pbmc_NSFK_T_cells, verbose = FALSE)
+
+pbmc_NSFK_T_cells <- RunPCA(pbmc_NSFK_T_cells, verbose = FALSE)
+
+DimHeatmap(pbmc_NSFK_T_cells, dims = 1:20, cells = 500, balanced = TRUE)
+ElbowPlot(pbmc_NSFK_T_cells,ndims = 20)
+pc.num=1:15
+pbmc_NSFK_T_cells <- FindNeighbors(pbmc_NSFK_T_cells, reduction = "pca", dims = pc.num)
+
+sce <- pbmc_NSFK_T_cells
+sce <- FindClusters(object = sce,resolution = c(seq(.1,1,.1)))
+clustree(sce@meta.data, prefix = "integrated_snn_res.")
+
+pbmc_NSFK_T_cells <- FindClusters(pbmc_NSFK_T_cells, resolution = 0.8)
+length(levels(Idents(pbmc_NSFK_T_cells)))
+
+pbmc_NSFK_T_cells <- RunUMAP(pbmc_NSFK_T_cells, reduction = "pca", dims = pc.num)
+
+p1 <- DimPlot(pbmc_NSFK_T_cells, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_T_cells, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0)
+p1 + p2
+
+p6 <- DimPlot(pbmc_NSFK_T_cells, reduction = "umap", split.by = "group",pt.size = 1.0);p6
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_T_cells) <- "SCT"
+
+celltype_marker_2=c('CD3D', 'CD3E', 'CD4', #TH CD3+CD4+CD8-
+                    'IL2RA','IKZF2','FOXP3',#Treg CD3+CD4+CD8-
+                    'CD3D', 'CD3E', 'CD8',#CTL CD3+CD4-CD8+
+                    'PD1', 'TIM3', '1B11', 'LAG3', 'BLIMP1','PDCD1', 'CTLA4', 'ENTPD1', #Tex
+                    'CCR7', 'TCF7','LEF1','SELL', #naive T
+                    'TRGV9', 'TRDV2','IFNG', 'IL17A', 'IL17F', 'IL22', #γδ T cell
+                    'SLAMF1', 'SLAMF6', 'TGFBR', 'VA24', 'JA18',#NKT
+                    'CD44', 'IFNF', 'S100A4', 'GPR183' #CD4+ memory T cell
+                    )
+
+
+VlnPlot(pbmc_NSFK_T_cells,features = celltype_marker_2,pt.size = 0,ncol = 4,combine = F)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+library(celldex)
+library(SingleR)#标记基因
+ref <- celldex::MonacoImmuneData()
+library(BiocParallel)
+scRNA = pbmc_NSFK_T_cells
+pred.scRNA <- SingleR(test = scRNA@assays$RNA@data, 
+                      ref = ref,
+                      labels = ref$label.fine, 
+                      clusters = scRNA@active.ident)
+pred.scRNA$pruned.labels
+
+plotScoreHeatmap(pred.scRNA, clusters=pred.scRNA@rownames, fontsize.row = 9,show_colnames = T)
+
+```
+
+```{r}
+new.cluster.ids <- c("Naive T", #0
+                     "δγ T", #1
+                     "Th", #2
+                     "CTL", #3
+                     "Th", #4
+                     "Th", #5
+                     "Th", #6
+                     "Naive T", #7
+                     "δγ T", #8
+                     "Th", #9
+                     "δγ T" #10
+                     )
+
+names(new.cluster.ids) <- levels(pbmc_NSFK_T_cells)
+pbmc_NSFK_T_cells <- RenameIdents(pbmc_NSFK_T_cells, new.cluster.ids)
+DimPlot(pbmc_NSFK_T_cells, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0,split.by = "group") + NoLegend()
+
+DimPlot(pbmc_NSFK_T_cells, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0) + NoLegend()
+
+dim(pbmc_NSFK_T_cells)
+
+p1 <- DimPlot(pbmc_NSFK_T_cells, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_T_cells, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0)
+p1 + p2
+pM1 <- DimPlot(pbmc_NSFK_T_cells, reduction = "umap", split.by = "group",pt.size = 1)
+pM1
+
+saveRDS(pbmc_NSFK_T_cells,file = "SAVE/pbmc_NSFK_T_cells.Rds")
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_T_cells) <- "integrated"
+pbmc_NSFK_T_cells.markers <- FindAllMarkers(pbmc_NSFK_T_cells, logfc.threshold = 0.1, min.pct = 0.01, 
+                          only.pos = T )
+
+pbmc_NSFK_T_cells$cluster <- Idents(pbmc_NSFK_T_cells)
+pbmc_NSFK_T_cells_marker<- pbmc_NSFK_T_cells.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+
+write.csv(pbmc_NSFK_T_cells_marker,file = "outputpbmc_NSFK_T_cells_marker.csv")
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_T_cells) <- "SCT"
+pbmc_NSFK_T_cells_fp1 <- FeaturePlot(pbmc_NSFK_T_cells, features = c(  
+                    'CCR7', #naive T
+                   'CD4', #δγ T
+                   'CD8A','IFNG', #CTL
+                   'IKZF2' #Th
+                    )
+                    ,min.cutoff = 0, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#376795"))+theme(legend.position = "none");
+pbmc_NSFK_T_cells_fp1
+
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_T_cells) <- "SCT"
+pbmc_NSFK_T_cells@active.ident <- ordered(pbmc_NSFK_T_cells@active.ident,c("Th","CTL","δγ T","Naive T"))
+genes_to_check = c('CCR7','SELL', #naive T
+                   'CD4', #δγ T
+                   'CD8A','IFNG', #CTL
+                   'FOXP3','IKZF2' #Th
+                    )
+genes_to_check = c(
+                   'FOXP3' #Th
+                    )
+
+DotPlot(pbmc_NSFK_T_cells,features = unique(genes_to_check),  scale.max = 5) + RotatedAxis()
+
+p2=DotPlot(pbmc_NSFK_T_cells, features = unique(genes_to_check)) + RotatedAxis()
+library(patchwork)
+
+```
+
+#Endothelial_cells
+```{r}
+rm(list = ls()) 
+load(file ="SAVE/pbmc_NSFK_Endothelial_cells.Rdata")
+```
+
+```{r}
+DefaultAssay(pbmc_NSFK_Endothelial_cells) <- "integrated"
+
+pbmc_NSFK_Endothelial_cells <- ScaleData(pbmc_NSFK_Endothelial_cells, verbose = FALSE)
+
+pbmc_NSFK_Endothelial_cells <- RunPCA(pbmc_NSFK_Endothelial_cells, verbose = FALSE)
+
+DimHeatmap(pbmc_NSFK_Endothelial_cells, dims = 1:20, cells = 500, balanced = TRUE)
+ElbowPlot(pbmc_NSFK_Endothelial_cells,ndims = 20)
+pc.num=1:15
+pbmc_NSFK_Endothelial_cells <- FindNeighbors(pbmc_NSFK_Endothelial_cells, reduction = "pca", dims = pc.num)
+
+sce <- pbmc_NSFK_Endothelial_cells
+sce <- FindClusters(object = sce,resolution = c(seq(.1,1,.1)))
+clustree(sce@meta.data, prefix = "integrated_snn_res.")
+
+pbmc_NSFK_Endothelial_cells <- FindClusters(pbmc_NSFK_Endothelial_cells, resolution = 0.2)
+length(levels(Idents(pbmc_NSFK_Endothelial_cells)))
+
+pbmc_NSFK_Endothelial_cells <- RunUMAP(pbmc_NSFK_Endothelial_cells, reduction = "pca", dims = pc.num)
+
+p1 <- DimPlot(pbmc_NSFK_Endothelial_cells, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_Endothelial_cells, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0)
+p1 + p2
+
+p6 <- DimPlot(pbmc_NSFK_Endothelial_cells, reduction = "umap", split.by = "group",pt.size = 1.0);p6
+```
+
+```{r}
+DefaultAssay(pbmc_NSFK_Endothelial_cells) <- "RNA"
+
+celltype_marker_2=c('LECs','CCL21','PROX1', #lymphatic ECs
+                    'HEY1','IGFBP3', #arteries
+                    'CD36','CA4', #capillaries
+                    'ACKR1' #veins
+                    )
+
+
+VlnPlot(pbmc_NSFK_Endothelial_cells,features = celltype_marker_2,pt.size = 0,ncol = 4,combine = F)
+
+```
+
+```{r}
+new.cluster.ids <- c("Veins", #0
+                     "Veins", #1
+                     "Capillaries", #2
+                     "Arteries", #3
+                     "Lymphatic ECs", #4
+                     "Arteries" #5
+                     )
+
+names(new.cluster.ids) <- levels(pbmc_NSFK_Endothelial_cells)
+pbmc_NSFK_Endothelial_cells <- RenameIdents(pbmc_NSFK_Endothelial_cells, new.cluster.ids)
+DimPlot(pbmc_NSFK_Endothelial_cells, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0,split.by = "group") + NoLegend()
+
+DimPlot(pbmc_NSFK_Endothelial_cells, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0) + NoLegend()
+
+dim(pbmc_NSFK_Endothelial_cells)
+
+p1 <- DimPlot(pbmc_NSFK_Endothelial_cells, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_Endothelial_cells, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0,cols=c('Veins'='#2878b5','Arteries'='#c82423','Capillaries'='#f8ac8c','Lymphatic ECs'='#9ac9db'))
+p1 + p2
+pM1 <- DimPlot(pbmc_NSFK_Endothelial_cells, reduction = "umap", split.by = "group",pt.size = 1,cols=c('Veins'='#2878b5','Arteries'='#c82423','Capillaries'='#f8ac8c','Lymphatic ECs'='#9ac9db'))
+pM1
+
+saveRDS(pbmc_NSFK_Endothelial_cells,file = "SAVE/pbmc_NSFK_Endothelial_cells.Rds")
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Endothelial_cells) <- "SCT"
+pbmc_NSFK_Endothelial_cells_fp1 <- FeaturePlot(pbmc_NSFK_Endothelial_cells, features = c(  
+                    'CCL21', #lymphatic ECs
+                    'HEY1', #arteries
+                    'MFSD2A', #capillaries
+                    'IL1R1' #veins
+                    )
+                    ,min.cutoff = 0, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#376795"))+theme(legend.position = "none");
+pbmc_NSFK_Endothelial_cells_fp1
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Endothelial_cells) <- "SCT"
+pbmc_NSFK_Endothelial_cells@active.ident <- ordered(pbmc_NSFK_Endothelial_cells@active.ident,c("Lymphatic ECs","Arteries","Capillaries","Veins"))
+genes_to_check = c('ACKR1','IL1R1', #veins
+                   'SLC7A5','MFSD2A', #capillaries
+                   'HEY1','IGFBP3', #arteries
+                   'CCL21','PROX1' #lymphatic ECs
+                    )
+
+DotPlot(pbmc_NSFK_Endothelial_cells,features = unique(genes_to_check)) + RotatedAxis()
+
+p2=DotPlot(pbmc_NSFK_Endothelial_cells, features = unique(genes_to_check)) + RotatedAxis()
+
+```

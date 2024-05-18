@@ -1,0 +1,159 @@
+
+```{r}
+rm(list = ls())
+options(stringsAsFactors = F)
+library(Seurat)
+library(SeuratObject)
+library(devtools)
+library(patchwork)
+library(tidyverse)
+library(ggplot2)
+library(clustree)
+library(glmGamPoi)
+```
+
+```{r}
+load(file = "SAVE/list_pbmc.RData")
+pbmc_N1<- list_pbmc[[1]]
+pbmc_S1<- list_pbmc[[2]]
+pbmc_S2<- list_pbmc[[3]]
+pbmc_S3<- list_pbmc[[4]]
+pbmc_S4<- list_pbmc[[5]]
+pbmc_F1<- list_pbmc[[6]]
+pbmc_F2<- list_pbmc[[7]]
+pbmc_K1<- list_pbmc[[8]]
+pbmc_K2<- list_pbmc[[9]]
+pbmc_K3<- list_pbmc[[10]]
+pbmc_K4<- list_pbmc[[11]]
+pbmc_K5<- list_pbmc[[12]]
+pbmc_K6<- list_pbmc[[13]]
+
+pbmc_N1[["percent.mt"]] <- PercentageFeatureSet(pbmc_N1, pattern = "^MT-")
+pbmc_S1[["percent.mt"]] <- PercentageFeatureSet(pbmc_S1, pattern = "^MT-")
+pbmc_S2[["percent.mt"]] <- PercentageFeatureSet(pbmc_S2, pattern = "^MT-")
+pbmc_S3[["percent.mt"]] <- PercentageFeatureSet(pbmc_S3, pattern = "^MT-")
+pbmc_S4[["percent.mt"]] <- PercentageFeatureSet(pbmc_S4, pattern = "^MT-")
+pbmc_F1[["percent.mt"]] <- PercentageFeatureSet(pbmc_F1, pattern = "^MT-")
+pbmc_F2[["percent.mt"]] <- PercentageFeatureSet(pbmc_F2, pattern = "^MT-")
+pbmc_K1[["percent.mt"]] <- PercentageFeatureSet(pbmc_K1, pattern = "^MT-")
+pbmc_K2[["percent.mt"]] <- PercentageFeatureSet(pbmc_K2, pattern = "^MT-")
+pbmc_K3[["percent.mt"]] <- PercentageFeatureSet(pbmc_K3, pattern = "^MT-")
+pbmc_K4[["percent.mt"]] <- PercentageFeatureSet(pbmc_K4, pattern = "^MT-")
+pbmc_K5[["percent.mt"]] <- PercentageFeatureSet(pbmc_K5, pattern = "^MT-")
+pbmc_K6[["percent.mt"]] <- PercentageFeatureSet(pbmc_K6, pattern = "^MT-")
+
+pbmc_N1$sample <- "N1"
+pbmc_S1$sample <- "S1"
+pbmc_S2$sample <- "S2"
+pbmc_S3$sample <- "S3"
+pbmc_S4$sample <- "S4"
+pbmc_F1$sample <- "F1"
+pbmc_F2$sample <- "F2"
+pbmc_K1$sample <- "K1"
+pbmc_K2$sample <- "K2"
+pbmc_K3$sample <- "K3"
+pbmc_K4$sample <- "K4"
+pbmc_K5$sample <- "K5"
+pbmc_K6$sample <- "K6"
+
+list_pbmc <- list(
+pbmc_N1,
+pbmc_S1,pbmc_S2,pbmc_S3,pbmc_S4,
+pbmc_F1,pbmc_F2,
+pbmc_K1,pbmc_K2,pbmc_K3,pbmc_K4,pbmc_K5,pbmc_K6
+)
+```
+
+```{r}
+
+if (!requireNamespace("glmGamPoi", quietly = TRUE)) {
+list_pbmc <- lapply(X = list_pbmc, FUN = SCTransform, vars.to.regress = "percent.mt", verbose = FALSE)
+}else{
+list_pbmc <- lapply(X = list_pbmc, FUN = SCTransform, vars.to.regress = "percent.mt", verbose = FALSE, method = "glmGamPoi")
+}
+
+features <- SelectIntegrationFeatures(object.list = list_pbmc,nfeatures = 2000)
+list_pbmc <- PrepSCTIntegration(object.list = list_pbmc, anchor.features = features)
+
+save(features,list_pbmc, file ="SAVE/pbmc_list_features.RData")
+```
+
+```{r}
+load("SAVE/pbmc_list_features.RData")
+
+pbmc_NSFK_anchors <- FindIntegrationAnchors(object.list = list_pbmc,normalization.method = "SCT", anchor.features = features)
+save(pbmc_NSFK_anchors, file ="SAVE/pbmc_NSFK_anchors.RData")
+```
+
+
+```{r}
+load("SAVE/pbmc_NSFK_anchors.RData")
+pbmc_NSFK <- IntegrateData(anchorset = pbmc_NSFK_anchors,normalization.method = "SCT")
+
+save(pbmc_NSFK, file ="SAVE/pbmc_NSFK.RData")
+```
+
+```{r}
+load(file = "SAVE/pbmc_NSFK.RData")
+dim(pbmc_NSFK)
+
+pbmc_NSFK$group <- ifelse(
+  str_detect(pbmc_NSFK@meta.data$sample,"N"),"N",
+    (ifelse(str_detect(pbmc_NSFK@meta.data$sample,"S"),"S",
+       (ifelse(str_detect(pbmc_NSFK@meta.data$sample,"F"),"F","K")
+        ))))
+
+names(pbmc_NSFK@meta.data)
+pbmc_NSFK@meta.data <- pbmc_NSFK@meta.data[,-c(13:36)]
+
+table(pbmc_NSFK@meta.data$orig.ident)
+table(pbmc_NSFK@meta.data$sample)
+table(pbmc_NSFK$group) 
+
+```
+
+```{r}
+
+DefaultAssay(pbmc_NSFK) <-"integrated"
+
+pbmc_NSFK <- RunPCA(pbmc_NSFK, features = VariableFeatures(pbmc_NSFK))
+
+DimHeatmap(pbmc_NSFK, dims = 1:30, cells = 500, balanced = TRUE)
+ElbowPlot(pbmc_NSFK,ndims = 30)
+
+if(F){pbmc_NSFK <- JackStraw(pbmc_NSFK, num.replicate = 100)
+      pbmc_NSFK <- ScoreJackStraw(pbmc_NSFK, dims = 1:20)
+      JackStrawPlot(pbmc_NSFK, dims = 1:20)}
+```
+
+```{r}
+
+DimPlot(pbmc_NSFK, reduction = "pca")+ NoLegend()
+
+pc.num=1:20
+pbmc_NSFK <- FindNeighbors(pbmc_NSFK, dims = pc.num)
+
+sce <- pbmc_NSFK
+sce <- FindClusters(object = sce,resolution = c(seq(.1,1,.1)))
+clustree(sce@meta.data, prefix = "integrated_snn_res.")
+
+pbmc_NSFK <- FindClusters(pbmc_NSFK, resolution = 0.8)
+
+length(levels(Idents(pbmc_NSFK)))
+```
+
+```{r}
+
+pbmc_NSFK <- RunUMAP(pbmc_NSFK, dims = 1:32)
+DimPlot(pbmc_NSFK, reduction = "umap")
+```
+
+```{r}
+
+pbmc_NSFK_group <- pbmc_NSFK$group
+save(pbmc_NSFK_group,file = "SAVE/pbmc_NSFK_group.Rdata")
+
+saveRDS(pbmc_NSFK,file = "SAVE/pbmc_NSFK.Rds")
+
+```
+

@@ -1,0 +1,267 @@
+
+```{r}
+rm(list = ls()) 
+library(Seurat)
+library(devtools)
+library(SeuratData)
+library(patchwork)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(clustree)
+library(ggplot2)
+```
+
+```{r}
+load(file ="SAVE/pbmc_NSFK_Mononeuclear_phagocytes.Rdata")
+```
+
+```{r}
+DefaultAssay(pbmc_NSFK_Mononeuclear_phagocytes) <- "integrated"
+
+pbmc_NSFK_Mononeuclear_phagocytes <- ScaleData(pbmc_NSFK_Mononeuclear_phagocytes, verbose = FALSE)
+
+pbmc_NSFK_Mononeuclear_phagocytes <- RunPCA(pbmc_NSFK_Mononeuclear_phagocytes, verbose = FALSE)
+
+DimHeatmap(pbmc_NSFK_Mononeuclear_phagocytes, dims = 1:20, cells = 500, balanced = TRUE)
+ElbowPlot(pbmc_NSFK_Mononeuclear_phagocytes,ndims = 20)
+pc.num=1:15
+pbmc_NSFK_Mononeuclear_phagocytes <- FindNeighbors(pbmc_NSFK_Mononeuclear_phagocytes, reduction = "pca", dims = pc.num)
+
+sce <- pbmc_NSFK_Mononeuclear_phagocytes
+sce <- FindClusters(object = sce,resolution = c(seq(.1,1,.1)))
+clustree(sce@meta.data, prefix = "integrated_snn_res.")
+
+pbmc_NSFK_Mononeuclear_phagocytes <- FindClusters(pbmc_NSFK_Mononeuclear_phagocytes, resolution = 0.9)
+length(levels(Idents(pbmc_NSFK_Mononeuclear_phagocytes)))
+
+pbmc_NSFK_Mononeuclear_phagocytes <- RunUMAP(pbmc_NSFK_Mononeuclear_phagocytes, reduction = "pca", dims = pc.num)
+
+p1 <- DimPlot(pbmc_NSFK_Mononeuclear_phagocytes, reduction = "umap", group.by = "group",pt.size = 1.0)
+p2 <- DimPlot(pbmc_NSFK_Mononeuclear_phagocytes, reduction = "umap", label = TRUE, repel = TRUE,pt.size = 1.0)
+p1 + p2
+
+p6 <- DimPlot(pbmc_NSFK_Mononeuclear_phagocytes, reduction = "umap", split.by = "group",pt.size = 1.0);p6
+ggsave(p6,filename = "output/p6.jpg",width = 12,height = 9)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Mononeuclear_phagocytes) <- "RNA"
+
+celltype_marker_2=c("FCN1","CD14", #monocyte
+                    'MARCO','MRC1','MSR1', #Alveolar Macro (TRM)
+                    'XCR1','CLEC9A',#cDC1 Dendritic cells
+                    'CLEC10A','FER1A','CD1C','CD1E',#cDC2 Dendritic cells
+                    'CCR7'#mature Dendritic cells
+                    )
+celltype_marker_2=c('CD1C','FCER1A','CD1E','CLEC10A','IL1R2','HLA-DQA1','HLA-DQB1',  #profile DC 
+                    'C1QA','C1QB','C1QC','CTSD','MARCO', #profile 
+                    'BIRC3','LAMP3', #profile mature Dendritic cells 
+                    "FCN1",'VCAN', #profile monocyte 
+                    'DNASE1L3', #profile cDC1 
+                    'GZMB','IGKC' #profile pDC 
+                    )
+
+
+VlnPlot(pbmc_NSFK_Mononeuclear_phagocytes,features = celltype_marker_2,pt.size = 0,ncol = 4,combine = F)
+
+ggsave(filename = "output/marker_2.png",device = "png",width = 44,height = 33,units = "cm")
+```
+
+```{r eval=FALSE, include=FALSE}
+
+library(celldex)
+library(SingleR)
+ref <- celldex::MonacoImmuneData()
+library(BiocParallel)
+scRNA = pbmc_NSFK_Mononeuclear_phagocytes
+pred.scRNA <- SingleR(test = scRNA@assays$RNA@data, 
+                      ref = ref,
+                      labels = ref$label.fine, 
+                      clusters = scRNA@active.ident)
+pred.scRNA$pruned.labels
+
+plotScoreHeatmap(pred.scRNA, clusters=pred.scRNA@rownames, fontsize.row = 9,show_colnames = T)
+
+```
+
+```{r}
+new.cluster.ids <- c("Macrophages", #0
+                     "Macrophages", #1
+                     "Macrophages", #2
+                     "pDC", #3
+                     "cDC2", #4
+                     "cDC2", #5
+                     "cDC2", #6
+                     "mDC", #7
+                     "cDC2", #8
+                     "Macrophages", #9
+                     "Monocytes", #10 
+                     "Macrophages", #11
+                     "cDC1" #12
+                     )
+
+names(new.cluster.ids) <- levels(pbmc_NSFK_Mononeuclear_phagocytes)
+pbmc_NSFK_Mononeuclear_phagocytes <- RenameIdents(pbmc_NSFK_Mononeuclear_phagocytes, new.cluster.ids)
+DimPlot(pbmc_NSFK_Mononeuclear_phagocytes, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0,split.by = "group") + NoLegend()
+
+DimPlot(pbmc_NSFK_Mononeuclear_phagocytes, 
+        reduction = "umap", 
+        label = TRUE, 
+        pt.size = 1.0) + NoLegend()
+
+dim(pbmc_NSFK_Mononeuclear_phagocytes)
+
+saveRDS(pbmc_NSFK_Mononeuclear_phagocytes,file = "SAVE/pbmc_NSFK_Mononeuclear_phagocytes.Rds")
+
+```
+
+```{r eval=FALSE, include=FALSE}
+NSFK_Mononeuclear_phagocytes.markers <- FindAllMarkers(pbmc_NSFK_Mononeuclear_phagocytes, logfc.threshold = 0.25, min.pct = 0.1, 
+                          only.pos = T )
+NSFK_Mononeuclear_phagocytes.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+
+NSFK_Mononeuclear_phagocytes_marker<- NSFK_Mononeuclear_phagocytes.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+
+write.csv(NSFK_Mononeuclear_phagocytes_marker,file = "output/NSFK_Mononeuclear_phagocytes_marker.csv")
+```
+
+```{r}
+ident_df <- data.frame(cell=names(Idents(pbmc_NSFK_Mononeuclear_phagocytes)),cluster=Idents(pbmc_NSFK_Mononeuclear_phagocytes))
+NSFK_Macrophage <- subset(pbmc_NSFK_Mononeuclear_phagocytes,cells=as.vector(ident_df[ident_df$cluster=="Macrophages",1]))
+dim(NSFK_Macrophage)
+save(NSFK_Macrophage,file = "SAVE/Macrophage.Rdata")
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(pbmc_NSFK_Mononeuclear_phagocytes) <- "SCT"
+
+
+
+genes_to_check <- FeaturePlot(pbmc_NSFK_Mononeuclear_phagocytes, features = c('C1QB',
+                                                    'CCL21', #profile mature Dendritic cells 
+                                                    'VCAN', #profile monocyte 
+                                                    'CLEC9A', #profile cDC1 
+                                                    'CD1C',#cDC2 Dendritic cells
+                                                    'EGLN3' #profile pDC 
+                                                    ),min.cutoff = 0, max.cutoff = 1.0,
+            pt.size = 0.5,ncol = 3)
+
+genes_to_check
+
+
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+genes_to_check = c('XCR1','CLEC9A', #profile cDC1 
+                   'VCAN',"CD14", #profile monocyte 
+                   'CCL21','CCR7', #profile mature Dendritic cells 
+                   'IGKC','EGLN3', #profile pDC
+                   'FCER1A','CD1C',#cDC2 Dendritic cells
+                   'C1QB','CTSD'
+                   )
+DotPlot(pbmc_NSFK_Mononeuclear_phagocytes,
+ features = unique(genes_to_check)) + RotatedAxis()
+
+p2=DotPlot(pbmc_NSFK_Mononeuclear_phagocytes, 
+ features = unique(genes_to_check)) + RotatedAxis()
+p2
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+N_cluster_cell <- pbmc_NSFK_Mononeuclear_phagocytes@active.ident[pbmc_NSFK_Mononeuclear_phagocytes@meta.data$group=="N"]
+N_cluster_cell <- as.data.frame(N_cluster_cell)
+N_cluster_cell$name <- "N"
+colnames(N_cluster_cell)[1] <- "cluster"
+
+F_cluster_cell <- pbmc_NSFK_Mononeuclear_phagocytes@active.ident[pbmc_NSFK_Mononeuclear_phagocytes@meta.data$group=="F"]
+
+F_cluster_cell <- as.data.frame(F_cluster_cell)
+F_cluster_cell$name <- "F"
+colnames(F_cluster_cell)[1] <- "cluster"
+
+S_cluster_cell <- pbmc_NSFK_Mononeuclear_phagocytes@active.ident[pbmc_NSFK_Mononeuclear_phagocytes@meta.data$group=="S"]
+S_cluster_cell <- as.data.frame(S_cluster_cell)
+S_cluster_cell$name <- "S"
+colnames(S_cluster_cell)[1] <- "cluster"
+
+K_cluster_cell <- pbmc_NSFK_Mononeuclear_phagocytes@active.ident[pbmc_NSFK_Mononeuclear_phagocytes@meta.data$group=="K"]
+K_cluster_cell <- as.data.frame(K_cluster_cell)
+K_cluster_cell$name <- "K"
+colnames(K_cluster_cell)[1] <- "cluster"
+
+All_cluster_cell<- rbind(N_cluster_cell,F_cluster_cell,S_cluster_cell,K_cluster_cell)
+All_cluster_cell$number <- 1
+
+All_cluster_cell <- ddply(All_cluster_cell,'name',transform,percent = 1/sum(number)*100)
+
+ggplot(All_cluster_cell,aes(name,percent,fill=cluster))+
+  geom_bar(stat="identity",position="stack")+
+  ggtitle("")+
+  theme_bw()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))
+
+p7 <- ggplot(All_cluster_cell,aes(name,percent,fill=cluster))+
+  geom_bar(stat="identity",position="stack")+
+  ggtitle("")+
+  theme_bw()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))
+
+ggsave(p7,filename = "output/p7.jpg",width = 12,height = 9)
+```
+
+```{r eval=FALSE, include=FALSE}
+
+rm(list = ls()) 
+pbmc_MP1 <- readRDS("SAVE/pbmc_NSFK_Mononeuclear_phagocytes.Rds")
+pbmc_MP1$group <- factor(pbmc_MP1$group)
+pbmc_MP1$celltypes <- Idents(pbmc_MP1)
+Idents(pbmc_MP1) <- "group"
+
+pbmc_Mac <- subset(x = pbmc_MP1, subset = celltypes == "Macrophages")
+pbmc_cDC2 <- subset(x = pbmc_MP1, subset = celltypes == "cDC2")
+pbmc_pDC <- subset(x = pbmc_MP1, subset = celltypes == "pDC")
+pbmc_mDC <- subset(x = pbmc_MP1, subset = celltypes == "mDC")
+pbmc_Mono <- subset(x = pbmc_MP1, subset = celltypes == "Monocytes")
+pbmc_cDC1 <- subset(x = pbmc_MP1, subset = celltypes == "cDC1")
+table(Idents(pbmc_mDC))
+pbmc1 <- list("pbmc_Mac","pbmc_cDC2","pbmc_pDC","pbmc_mDC","pbmc_Mono","pbmc_cDC1")
+
+pbmc_Mac <- FindMarkers(pbmc_Mac, ident.1 = "N", ident.2 = "K") 
+pbmc_cDC2 <- FindMarkers(pbmc_cDC2, ident.1 = "N", ident.2 = "K")
+pbmc_pDC <- FindMarkers(pbmc_pDC, ident.1 = "N", ident.2 = "K")
+pbmc_mDC <- FindMarkers(pbmc_mDC, ident.1 = "N", ident.2 = "K")
+pbmc_Mono <- FindMarkers(pbmc_Mono, ident.1 = "N", ident.2 = "K")
+pbmc_cDC1 <- FindMarkers(pbmc_cDC1, ident.1 = "N", ident.2 = "K")
+
+table(pbmc_MP$group)
+
+DefaultAssay(pbmc_MP) <- "RNA"
+pbmc_MP.markers <- FindAllMarkers(pbmc_MP, logfc.threshold = 0.25, min.pct = 0.1,only.pos = F )
+
+logFC_t = 1
+P.Value_t = 0.05
+k1 = (pbmc_MP.markers$p_val < P.Value_t)&(pbmc_MP.markers$avg_log2FC < -logFC_t)
+k2 = (pbmc_MP.markers$p_val < P.Value_t)&(pbmc_MP.markers$avg_log2FC > logFC_t)
+pbmc_MP.markers <- mutate(pbmc_MP.markers,change = ifelse(k1,"down",ifelse(k2,"up","stable")))
+
+table(pbmc_MP.markers[pbmc_MP.markers$cluster == "Macrophages",]$change)
+table(pbmc_MP.markers[pbmc_MP.markers$cluster == "cDC2",]$change)
+table(pbmc_MP.markers[pbmc_MP.markers$cluster == "pDC",]$change)
+table(pbmc_MP.markers[pbmc_MP.markers$cluster == "mDC",]$change)
+table(pbmc_MP.markers[pbmc_MP.markers$cluster == "Monocytes ",]$change)
+table(pbmc_MP.markers[pbmc_MP.markers$cluster == "cDC1",]$change)
+
+table(pbmc_MP.markers$cluster)
+write.csv(pbmc_NSFK_Mononeuclear_phagocytes_marker,file = "output/pbmc_NSFK_Mononeuclear_phagocytes_marker.csv")
+```

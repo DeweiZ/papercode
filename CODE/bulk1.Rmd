@@ -1,0 +1,167 @@
+
+```{r}
+rm(list = ls())
+library(readxl)
+count <- read_xlsx("input/1_genes_fpkm_expression.xlsx")
+count <- count[!duplicated(count$gene_name),]
+ids <- count[,c(1,6,7)]
+exp1 <- count[,c(6,23:28)]
+exp1 <- as.data.frame(exp1)
+row.names(exp1) <- exp1$gene_name
+exp1 <- exp1[,-1]
+exp1 <- log2(edgeR::cpm(exp1)+1)
+
+colnames(exp1) <- c("C1","C2","C3","S1","S2","S3")
+
+library(stringr)
+Group = ifelse(str_detect(colnames(exp1),"C"),"Control","Sebum")
+Group = factor(Group,levels = c("Control","Sebum"))
+
+```
+#PCA
+```{r}
+g=Group
+g=relevel(g,'Control')
+design=model.matrix(~g)
+library(FactoMineR)
+
+dat <- as.data.frame(t(exp1))
+dat.pca <- PCA(dat, graph = FALSE)
+
+library(factoextra)
+pca_plot <- fviz_pca_ind(dat.pca,
+                         geom.ind = "point",
+                         col.ind = Group, 
+                         palette = c("#376795", "#e76254"),
+                         addEllipses = TRUE,
+                         legend.title = "Groups")#3.05*4.0
+pca_plot
+```
+
+```{r}
+library(limma)
+fit=lmFit(exp1,design)
+fit=eBayes(fit)
+deg=topTable(fit,coef=2,number = Inf)
+library(dplyr)
+deg <- mutate(deg,probe_id = rownames(deg))
+deg <- merge(deg,ids, by.x="probe_id", by.y="gene_name")
+deg <- na.omit(deg)
+
+logFC_t=1
+P.Value_t = 0.05
+k1 = (deg$P.Value < P.Value_t)&(deg$logFC < -logFC_t)
+k2 = (deg$P.Value < P.Value_t)&(deg$logFC > logFC_t)
+deg <- mutate(deg,change = ifelse(k1,"down",ifelse(k2,"up","stable")))
+table(deg$change)
+
+save(exp1,deg,Group,file = "input/step1.rdata")
+write.csv(deg,"output/deg_limma.csv")
+```
+
+```{r}
+cut_off_pvalue = 0.05
+p<-ggplot(
+  deg, 
+  aes(x = logFC, 
+      y = -log10(P.Value), 
+      colour=change)) +
+      geom_point(alpha=0.4, size=2.0) +
+      scale_color_manual(values=c("#376795", "#eeeeee","#e76254"))+
+  geom_vline(xintercept=c(-1,1),lty=4,col="black",lwd=0.8) +
+  geom_hline(yintercept = -log10(cut_off_pvalue),lty=4,col="black",lwd=0.8) +
+  labs(x="log2(fold change)",
+       y="-log10 (p-value)")+
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.position="right", 
+        legend.title = element_blank()
+)
+library(ggrepel)
+deg$label = ifelse(deg$P.Value < cut_off_pvalue & abs(deg$logFC) >= 5, as.character(deg$probe_id),"")
+deg[deg$probe_id=="MAFB",]$label <- "MAFB"
+deg[deg$probe_id=="MAF",]$label <- "MAF"
+
+p+geom_text_repel(data = deg, aes(x = deg$logFC, 
+                                      y = -log10(deg$P.Value), 
+                                      label = label),
+                  size = 3,box.padding = unit(0.5, "lines"),
+                  point.padding = unit(0.8, "lines"), 
+                  segment.color = "black", 
+                  show.legend = FALSE,
+                  max.overlaps = 500)
+#3.03*3.97
+```
+
+```{r}
+rm(list = ls())
+load("input/step1.rdata")
+symbol <- read.csv("input/symbol1.csv")
+symbol_m1 <- exp1[row.names(exp1)%in% symbol$X1,]
+symbol_m2 <- exp1[row.names(exp1)%in% symbol$X2,]
+symbol_lq <- exp1[row.names(exp1)%in% symbol$X3,]
+
+library(ComplexHeatmap)
+library(circlize)
+col = colorRamp2(breaks = c(-1, 0, 1),colors = c('#376795',"#eeeeee", '#e76254'))
+Group
+annotation_col = HeatmapAnnotation(cluster = anno_block(gp = gpar(fill = c('Control'='#376795','Sebum'='#e76254')),
+                       labels = c("Control",'Sebum'),
+                       labels_gp = gpar(col = "black", fontsize = 12)))#通用代码
+
+symbol_m1 <- cbind(symbol_m1,rowMeans(symbol_m1))
+
+symbol_m11 <- apply(symbol_m1,2,function(x){x-symbol_m1[,7]})[,-7]
+
+Heatmap(symbol_m11,
+        col = col,
+        show_row_names = T,
+        top_annotation = annotation_col,
+        column_split = Group,
+        column_title = NULL,
+        show_column_names = F,
+        cluster_rows = T,
+        show_column_dend = FALSE, 
+        show_row_dend = FALSE,
+        column_order = c("C1", "C2", "C3", "S1", "S2", "S3")
+        )
+```
+
+```{r}
+symbol_m2 <- cbind(symbol_m2,rowMeans(symbol_m2))
+symbol_m22 <- apply(symbol_m2,2,function(x){x-symbol_m2[,7]})[,-7]
+col = colorRamp2(breaks = c(-2, 0, 2),colors = c('#376795',"#eeeeee", '#e76254'))
+
+Heatmap(symbol_m22,
+        col = col,
+        show_row_names = T,
+        top_annotation = annotation_col,
+        column_split = Group,
+        column_title = NULL,
+        show_column_names = F,
+        cluster_rows = T,
+        show_column_dend = FALSE, 
+        show_row_dend = FALSE,
+        column_order = c("C1", "C2", "C3", "S1", "S2", "S3")
+        )
+
+```
+
+```{r}
+symbol_lq  <- cbind(symbol_lq ,rowMeans(symbol_lq))
+symbol_lq  <- apply(symbol_lq ,2,function(x){x-symbol_lq [,7]})[,-7]
+col = colorRamp2(breaks = c(-2, 0, 2),colors = c('#376795',"#eeeeee", '#e76254'))
+Heatmap(symbol_lq ,
+        col = col,
+        show_row_names = T,
+        top_annotation = annotation_col,
+        column_split = Group,
+        column_title = NULL,
+        show_column_names = F,
+        cluster_rows = T,
+        show_column_dend = FALSE, 
+        show_row_dend = FALSE,
+        column_order = c("C1", "C2", "C3", "S1", "S2", "S3")
+        )
+```
+

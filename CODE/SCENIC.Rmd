@@ -1,0 +1,81 @@
+
+```{r}
+rm(list = ls())
+library(SeuratObject)
+library(Seurat)
+library(tidyverse)
+library(patchwork)
+library(SCENIC)
+require(data.table)
+library(stats)
+library(foreach)
+library(loomR) 
+```
+
+```{r}
+
+scRNA <- readRDS("D:/Users/Administrator/Desktop/SJY NSKF - 2/SAVE/NSFK_Macrophage.Rds")
+
+scRNA$celltype <- Idents(scRNA)
+cellInfo <- data.frame(scRNA@meta.data)
+colnames(cellInfo)[which(colnames(cellInfo)=="group")] <- "samples"
+colnames(cellInfo)[which(colnames(cellInfo)=="nCount_RNA")] <- "nUMI"
+cellInfo <- cellInfo[,c("samples","nUMI","celltype")]
+saveRDS(cellInfo, file="int/cellInfo.Rds")
+
+exprMat <- as.matrix(scRNA@assays$RNA@counts)
+dim(exprMat)
+
+mydbDIR <- "./cisTarget_databases"
+mydbs <- c("hg38__refseq-r80__500bp_up_and_100bp_down_tss.mc9nr.feather",
+           "hg38__refseq-r80__10kb_up_and_down_tss.mc9nr.feather")
+names(mydbs) <- c("500bp", "10kb")
+
+data(list="motifAnnotations_hgnc_v9", package="RcisTarget")
+motifAnnotations_hgnc <- motifAnnotations_hgnc_v9
+
+scenicOptions <- initializeScenic(org="hgnc", 
+                                  nCores= 8,
+                                  dbDir= mydbDIR, 
+                                  dbs = mydbs,
+                                  datasetTitle = "HNSCC")
+saveRDS(scenicOptions, "int/scenicOptions.rds")
+
+```
+
+```{r}
+
+genesKept <- geneFiltering(exprMat, scenicOptions)
+exprMat_filtered <- exprMat[genesKept, ]
+
+runCorrelation(exprMat_filtered, scenicOptions)
+
+exprMat_filtered_log <- log2(exprMat_filtered+1)
+runGenie3(exprMat_filtered_log, scenicOptions,nParts = 5)
+
+save.image(file = "SCENIC1.RData")
+```
+
+```{r}
+load(file = "SCENIC1.RData")
+runSCENIC_1_coexNetwork2modules(scenicOptions)
+```
+
+```{r eval=FALSE, include=FALSE}
+scenicOptions <- initializeScenic(org="hgnc", 
+                                  nCores= 1,
+                                  dbDir= mydbDIR, 
+                                  dbs = mydbs,
+                                  datasetTitle = "HNSCC")
+source('runSCENIC_2_createRegulons_win11.R')
+runSCENIC_2_createRegulons_win11(scenicOptions,coexMethod=c("top5perTarget"))
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+exprMat_all <- as.matrix(scRNA@assays$RNA@counts)
+exprMat_all <- log2(exprMat_all+1)
+runSCENIC_3_scoreCells(scenicOptions, exprMat=exprMat_all)
+save.image(file = "NSKF_SCENIC.RData")
+``` 

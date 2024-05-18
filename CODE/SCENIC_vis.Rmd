@@ -1,0 +1,170 @@
+
+```{r}
+rm(list = ls())
+library(SeuratObject)
+library(Seurat)
+library(tidyverse)
+library(patchwork)
+library(rbokeh)
+library(SCENIC)
+library(loomR)
+library(SCopeLoomR)
+library(doParallel)
+library(ggpubr)
+library(circlize)
+```
+
+```{r}
+scRNA <- readRDS("D:/Users/Administrator/Desktop/SJY NSKF - 2/SAVE/NSFK_Macrophage.Rds")
+dim(scRNA)
+DefaultAssay(scRNA) <- "RNA"
+
+AUCmatrix <- readRDS("int/3.4_regulonAUC.Rds")
+AUCmatrix <- AUCmatrix@assays@data@listData$AUC
+AUCmatrix <- data.frame(t(AUCmatrix), check.names=F)
+RegulonName_AUC <- colnames(AUCmatrix)
+RegulonName_AUC <- gsub(' \\(','_',RegulonName_AUC)
+RegulonName_AUC <- gsub('\\)','',RegulonName_AUC)
+colnames(AUCmatrix) <- RegulonName_AUC
+scRNAauc <- AddMetaData(scRNA,AUCmatrix)
+scRNAauc@assays$integrated <- NULL
+saveRDS(scRNAauc,'int/scRNAauc.rds')
+
+```
+
+```{r}
+#3.05*3.8
+FeaturePlot(scRNAauc, features="MAFB_142g", label=F, reduction = 'umap',min.cutoff = 0, max.cutoff = 0.1,
+                 cols = if (F) {c("lightgrey", "#ff0000", "#00ff00")} else {c("#eeeeee", "#e76254")},pt.size = 1)
+#3.05*3.8
+FeaturePlot(scRNAauc, features="MAF_43g", label=F, reduction = 'umap',min.cutoff = 0, max.cutoff = 0.1,
+                 cols = if (F) {c("lightgrey", "#ff0000", "#00ff00")} else {c("#eeeeee", "#e76254")},pt.size = 1)
+
+#RidgePlot&VlnPlot
+my_levels =c("SAM","KAM" )
+Idents(scRNAauc) <- factor(Idents(scRNAauc), levels= my_levels)
+
+VlnPlot(scRNAauc, features = "MAFB_142g", pt.size = 0.2) + 
+  theme(legend.position='none')+
+  scale_fill_manual(values=alpha(c('SAM'='#376795','KAM'='#e76254'),1))
+ggsave(filename = "MAFB.pdf",device = "pdf",width = 8.8,height = 10,units = "cm")
+
+VlnPlot(scRNAauc, features = "MAF_43g", pt.size = 0.2) + 
+  theme(legend.position='none')+
+  scale_fill_manual(values=alpha(c('SAM'='#376795','KAM'='#e76254'),1))
+ggsave(filename = "MAF.pdf",device = "pdf",width = 8.8,height = 10,units = "cm")
+```
+
+```{r}
+library(pheatmap)
+cellInfo <- readRDS("int/cellInfo.Rds")
+celltype = subset(cellInfo,select = 'celltype')
+celltype$celltype <- factor(celltype$celltype,levels =c('SAM','KAM'))
+samples = subset(cellInfo,select = 'samples')
+AUCmatrix <- t(AUCmatrix)
+my.regulons <- rownames(AUCmatrix)
+myAUCmatrix <- AUCmatrix[rownames(AUCmatrix)%in%my.regulons,]
+
+library(ComplexHeatmap)
+col = colorRamp2(breaks = c(0, 0.05, 0.1), colors = c('#376795',"#eeeeee", '#e76254'))
+annotation_col=HeatmapAnnotation(cluster = anno_block(gp = gpar(fill = c('SAM'='#376795','KAM'='#e76254')),
+                       labels = c("SAM",'KAM'),
+                       labels_gp = gpar(col = "black", fontsize = 12)))
+
+Heatmap(myAUCmatrix,
+        col = col,
+        show_row_names = T,
+        top_annotation = annotation_col,
+        column_split = celltype,
+        column_title = NULL,
+        show_column_names = F,
+        cluster_rows = T,
+        show_column_dend = FALSE, 
+        show_row_dend = FALSE,
+        )
+
+```
+
+```{r}
+
+library(clusterProfiler)
+regulonT <- read_tsv("output/Step2_regulonTargetsInfo.tsv")
+
+regulonT_sel <- regulonT[regulonT$TF== c('JUND','MAFB','MAF','MAFG','CEBPB' ,'ATF3' ,'FOS' ,'FOXO3' ,'NFE2L2','REL','CREM','IRF1'),]
+
+M2_marker <- read.csv("D:/Users/Administrator/Desktop/SJY NSKF - 2/output/M2_marker.csv")
+
+test_p <- M2_marker $p_val <= 0.05 
+test_up <- M2_marker $avg_log2FC >= 0.5 
+test_down <- M2_marker $avg_log2FC <=- 0.5 
+
+M2_marker  <- mutate(M2_marker , regulation=test_p+test_up+10*test_down, change = "")
+
+M2_marker [M2_marker $regulation==2,"change"] <- "up"
+M2_marker [M2_marker $regulation==11,"change"] <- "down"
+M2_marker [M2_marker $regulation==0|M2_marker $regulation==1|M2_marker $regulation==10,"change"] <- "none"
+
+regulonM2 <- merge(regulonT_sel,M2_marker,by.x= "gene",by.y ="X") 
+regulonM2 <- regulonM2[!regulonM2$change=="none",]
+duplicated(regulonM2$gene)
+
+write.csv(regulonM2,file = "scenic_seurat/regulonM2.csv")
+
+regulonT_MAFB<- regulonT[regulonT$TF== "MAFB",]
+regulonT_MAFB<- as.data.frame(regulonT_MAFB)
+ids2 = bitr(regulonT_MAFB$gene,'SYMBOL','ENTREZID','org.Hs.eg.db')
+regulonT_MAFB = merge(regulonT_MAFB,ids2,by.x='gene',by.y='SYMBOL')
+write.csv(regulonT_MAFB,file = "regulonT_MAFB.csv")
+
+regulonT_MAF<- regulonT[regulonT$TF== "MAF",]
+regulonT_MAF<- as.data.frame(regulonT_MAF)
+ids2 = bitr(regulonT_MAF$gene,'SYMBOL','ENTREZID','org.Hs.eg.db')
+regulonT_MAF = merge(regulonT_MAF,ids2,by.x='gene',by.y='SYMBOL')
+write.csv(regulonT_MAF,file = "regulonT_MAF.csv")
+```
+
+```{r}
+
+kk_MAFB <- enrichKEGG(gene = regulonT_MAFB$ENTREZID,organism = 'hsa',  pvalueCutoff = 0.05)
+
+ggplot(head(kk_MAFB@result,10),aes(x=GeneRatio,y=Description))+
+  labs(title="The KEGG enrichment analysis")+
+  geom_point(aes(size = `Count`, color = `pvalue`), shape = 16)+  scale_size(range = c(1, 10))+scale_color_gradient(low = "#cf0000",high = "#f5c6c6")
+
+save(regulonT_MAFB,regulonT_MAFB,file="regulonT.RData")
+```
+
+```{r}
+library("GOplot")
+library(AnnoProbe) 
+
+MAFB_meta <- kk_MAFB@result
+MAFB_meta <- MAFB_meta[order(MAFB_meta$Count,decreasing = T),]
+MAFB_meta_2<- MAFB_meta[c(1:10),]
+
+tmp = do.call(rbind,
+        apply(MAFB_meta_2, 1,function(x){
+          data.frame(go=x[2],
+                     gene=strsplit(x[10],'/')[[1]])
+        })
+)
+ids3 = bitr(tmp$gene,'ENTREZID','SYMBOL','org.Hs.eg.db')
+tmp$geneID<- ids3$SYMBOL[match(tmp$gene,ids3$ENTREZID)]
+tmp<- tmp[,c(1,3)]
+
+library(reshape2)
+tmp2=dcast(tmp,go~geneID)
+tmp2[is.na(tmp2)]=0
+rownames(tmp2)=tmp2[,1]
+tmp2=tmp2[,-1]
+tmp2=t(tmp2)
+tmp2[tmp2!=0]=1
+tmp2=as.data.frame(tmp2)
+tmp2$logFC=0
+cg=rownames(tmp2)
+tmp2=apply(tmp2,2,as.numeric)
+rownames(tmp2)=cg
+
+p7<- GOChord(tmp2, space = 0, gene.order = 'logFC', gene.space = 0.25, gene.size = 5,process.label=15,ribbon.col= brewer.pal(length(MAFB_meta_2$Description), "RdYlBu"))
+ggsave('scenic_seurat/tmp2_GOChord.pdf', p7, width=18, height=20)
+```

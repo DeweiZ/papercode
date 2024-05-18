@@ -1,0 +1,154 @@
+
+```{r}
+rm(list = ls()) 
+library(Seurat)
+library(monocle3)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(ClusterGVis)
+options(Seurat.object.assay.version = 'v5')
+```
+
+```{r}
+
+pbmc <- readRDS("SAVE/NSFK_Macrophage.Rds")
+
+data <- GetAssayData(pbmc, assay = 'RNA', slot = 'counts')
+
+cell_metadata <- pbmc@meta.data
+
+recluster <- Idents(pbmc)
+recluster <- as.data.frame(recluster)
+cell_metadata <- merge(cell_metadata,recluster,by = 0,all=TRUE,sort =F)
+rownames(cell_metadata)<- cell_metadata$Row.names
+cell_metadata$Row.names <- NULL
+
+gene_annotation <- data.frame(gene_short_name = rownames(data))
+rownames(gene_annotation) <- rownames(data)
+
+cds <- new_cell_data_set(data,
+                         cell_metadata = cell_metadata,
+                         gene_metadata = gene_annotation)
+
+cds <- preprocess_cds(cds, num_dim =50)     
+
+cds <- reduce_dimension(cds,preprocess_method = "PCA") 
+
+cds <- reduce_dimension(cds,reduction_method = "tSNE")
+
+```
+
+```{r}
+
+cds.embed <- cds@int_colData$reducedDims$UMAP
+int.embed <- Embeddings(pbmc, reduction = "umap")
+int.embed <- int.embed[rownames(cds.embed),]
+cds@int_colData$reducedDims$UMAP <- int.embed 
+cds <- cluster_cells(cds)
+```
+
+```{r}
+cds <- learn_graph(cds)     
+
+head(colData(cds))
+
+p <- plot_cells(cds,
+           color_cells_by = "recluster",
+           label_groups_by_cluster= FALSE,
+           label_leaves= TRUE,
+           label_branch_points= TRUE,
+           group_label_size=8,
+           cell_size=1.5);p
+
+```
+
+```{r}
+
+get_earliest_principal_node  <- function(cds, time_bin="N"){
+  cell_ids <- which(colData(cds)[, "group"] == time_bin)
+  
+  closest_vertex <-cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+  root_pr_nodes <-
+    igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names(which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+
+cds = order_cells(cds, root_pr_nodes = get_earliest_principal_node(cds))
+
+plot_cells(cds, color_cells_by = "pseudotime", label_cell_groups = FALSE, 
+           label_leaves = FALSE,  label_branch_points = FALSE,cell_size = 0.8)#3.0*4.2size
+
+```
+
+```{r}
+
+Track_genes <- graph_test(cds, neighbor_graph="principal_graph", cores=1)
+Track_genes <- Track_genes[,c(5,2,3,4,1,6)] %>% filter(q_value < 1e-3)
+
+Track_genes_sig <- Track_genes %>% top_n(n=10, morans_I) %>%
+  pull(gene_short_name) %>% as.character()
+
+monocle3::plot_genes_in_pseudotime(cds[Track_genes_sig,],color_cells_by ="recluster",min_expr=0.5, ncol = 2)
+
+monocle3::plot_cells(cds, genes=Track_genes_sig, show_trajectory_graph=FALSE,
+           label_cell_groups=FALSE,  label_leaves=FALSE)
+
+#MAF 3.05*3.7
+monocle3::plot_cells(cds, genes="MAF", show_trajectory_graph=FALSE,
+           label_cell_groups=FALSE, label_leaves=FALSE,cell_size = 1)
+# 3.05*3.95
+monocle3::plot_genes_in_pseudotime(cds["MAF",], color_cells_by="pseudotime", 
+                         min_expr=0.1, ncol = 2)
+
+monocle3::plot_cells(cds, genes="MAFB", show_trajectory_graph=FALSE,
+           label_cell_groups=FALSE, label_leaves=FALSE,cell_size = 1)
+
+monocle3::plot_genes_in_pseudotime(cds["MAFB",], color_cells_by="pseudotime", 
+                         min_expr=0.1, ncol = 2)
+
+monocle3::plot_cells(cds, genes="TET2", show_trajectory_graph=FALSE,
+           label_cell_groups=FALSE, label_leaves=FALSE,cell_size = 1)
+
+monocle3::plot_genes_in_pseudotime(cds["TET2",], color_cells_by="pseudotime", 
+                         min_expr=0)
+
+saveRDS(Track_genes,file="output/Track_genes.RDS")
+
+```
+
+```{r}
+
+genes <- row.names(subset(Track_genes, morans_I > 0.05))
+
+mat <- pre_pseudotime_matrix(cds_obj = cds,gene_list = genes)
+
+lipid <- read.csv(file = "DATA/GeneCards-SearchResults.-lipid droplet.csv")
+
+track_lipid <- lipid[lipid$Gene.Symbol %in% genes,]
+
+track_lipid <- track_lipid[track_lipid$Relevance.score>10,]
+
+DefaultAssay(pbmc) <- "SCT"
+DotPlot(pbmc,features = track_lipid$Gene.Symbol,cols = c("#eeeeee", "#e76254"))+coord_flip()
+
+dev.new()
+# kmeans
+ck <- clusterData(exp = mat,
+                  cluster.method = "kmeans",
+                  cluster.num = 5)
+
+ht.col.list <- list(col_range = c(-2, 0, 2),col_color = c("#376795", "#eeeeee", "#e76254"))
+pdf('output/monocle3.pdf',height = 10,width = 8,onefile = F)
+
+visCluster(object = ck,
+           plot.type = "both",
+           add.sampleanno = F,
+           ht.col.list = ht.col.list,
+           mline.col ='#CC3333',
+           markGenes = track_lipid$Gene.Symbol)
+
+dev.off()
+```

@@ -1,0 +1,280 @@
+
+```{r}
+rm(list = ls())
+library(plot1cell)
+library(Seurat) 
+library(tidyverse)
+library(stringr)
+library(RColorBrewer)
+library(plyr)
+```
+
+```{r}
+
+Fibroblasts<- readRDS(file = "SAVE/pbmc_NSFK_Fibroblasts.Rds")
+T_cells <- readRDS(file = "SAVE/pbmc_NSFK_T_cells.Rds")
+Endothelial_cells <- readRDS(file = "SAVE/pbmc_NSFK_Endothelial_cells.Rds")
+Mononeuclear_phagocytes <- readRDS(file = "SAVE/pbmc_NSFK_Mononeuclear_phagocytes.Rds")
+
+```
+
+```{r}
+Fibroblasts$group <- ordered(Fibroblasts$group,c("N","S","F","K"))
+UMAPPlot(Fibroblasts,split.by = "group",pt.size = 0.01, cols = c("#376795", "#96e785", "#00aeb6", "#f9f871"))
+
+cluster  <- Idents(Fibroblasts)
+name <- Fibroblasts@meta.data[["group"]] 
+b <- as.data.frame(cluster)
+b$name <- name
+b$number <- 1
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+p <- ggplot(b,aes(x =name,y=percent,fill= cluster))+
+  geom_bar(stat="identity",position="stack")+
+  scale_fill_manual(values = c("#376795", "#96e785", "#00aeb6", "#f9f871"))+
+  theme_bw()+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL));p
+
+```
+
+```{r}
+
+bn<- b[b$name=="N",]
+bn$num2 <- 1/5
+
+bs<- b[b$name=="S",]
+bs$num2 <- 1/4
+
+bf<- b[b$name=="F",]
+bf$num2 <- 1/2
+
+bk<- b[b$name=="K",]
+bk$num2 <- 1/6
+bb<- bind_rows(bn,bs,bf,bk)
+
+pp <- ggplot(bb,aes(name,num2,fill=cluster))+
+  geom_bar(stat="identity",position="stack",width=0.9)+
+  ggtitle("")+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))+
+  scale_fill_manual(values=c("#376795", "#96e785", "#00aeb6", "#f9f871"))
+pp
+
+```
+
+```{r}
+DefaultAssay(Fibroblasts) <- "SCT"
+
+genes_to_check = c("COL12A1","COL5A2","PDLIM7","SPARC","COL11A1","INHBA","SDC1","COL1A2","ACTA2","POSTN","COMP","ADAM12","NREP","TNFRSF12A","CD9" )
+DotPlot(Fibroblasts, features = unique(genes_to_check),cols = c("#eeeeee", "#376795"))+RotatedAxis()
+
+FeaturePlot(Fibroblasts, features = c("CD9","COL11A1","POSTN","COL1A2" 
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#376795"),combine = F)
+
+```
+
+```{r}
+T_cells$group <- ordered(T_cells$group,c("N","S","F","K"))
+UMAPPlot(T_cells,split.by = "group",pt.size = 0.01, cols = c("#ffd06f", "#007664", "#649b92","#2F4858","#4E4637"))
+
+cluster  <- Idents(T_cells)
+name <- T_cells@meta.data[["group"]] 
+b <- as.data.frame(cluster)
+b$name <- name
+b$number <- 1
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+p <- ggplot(b,aes(x =name,y=percent,fill= cluster))+
+  geom_bar(stat="identity",position="stack")+
+  scale_fill_manual(values = c("#ffd06f", "#007664", "#649b92","#2F4858","#4E4637"))+
+  theme_bw()+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL));p
+```
+
+```{r}
+
+bn<- b[b$name=="N",]
+bn$num2 <- 1/5
+
+bs<- b[b$name=="S",]
+bs$num2 <- 1/4
+
+bf<- b[b$name=="F",]
+bf$num2 <- 1/2
+
+bk<- b[b$name=="K",]
+bk$num2 <- 1/6
+bb<- bind_rows(bn,bs,bf,bk)
+
+pp <- ggplot(bb,aes(name,num2,fill=cluster))+
+  geom_bar(stat="identity",position="stack",width=0.9)+
+  ggtitle("")+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))+
+  scale_fill_manual(values=c("#ffd06f", "#007664", "#649b92","#2F4858","#4E4637"))
+pp
+
+```
+
+```{r}
+DefaultAssay(T_cells) <- "SCT"
+
+genes_to_check = c('CCR7','SELL', #naive T
+                   'CD4', #δγ T
+                   'CD8A','IFNG', #CTL
+                   'FOXP3','IKZF2' #Th
+                   )
+DotPlot(T_cells, features = unique(genes_to_check),cols = c("#eeeeee", "#FFD06F"))+RotatedAxis()
+
+FeaturePlot(T_cells, features = c(                    
+                   'CCR7', #naive T
+                   'CD4', #δγ T
+                   'CD8A','IFNG', #CTL
+                   'IKZF2' #Th 
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#FFD06F"),combine = F)
+
+```
+
+```{r}
+Endothelial_cells$group <- ordered(Endothelial_cells$group,c("N","S","F","K"))
+UMAPPlot(Endothelial_cells,split.by = "group",pt.size = 0.01, cols = c("#2f4858", "#72bcd5", "#FFD06F", "#c48466"))
+
+cluster  <- Idents(Endothelial_cells)
+name <- Endothelial_cells@meta.data[["group"]] 
+b <- as.data.frame(cluster)
+b$name <- name
+b$number <- 1
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+p <- ggplot(b,aes(x =name,y=percent,fill= cluster))+
+  geom_bar(stat="identity",position="stack")+
+  scale_fill_manual(values = c("#2f4858", "#72bcd5", "#FFD06F", "#c48466"))+
+  theme_bw()+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL));p
+
+```
+
+```{r}
+
+bn<- b[b$name=="N",]
+bn$num2 <- 1/5
+
+bs<- b[b$name=="S",]
+bs$num2 <- 1/4
+
+bf<- b[b$name=="F",]
+bf$num2 <- 1/2
+
+bk<- b[b$name=="K",]
+bk$num2 <- 1/6
+bb<- bind_rows(bn,bs,bf,bk)
+
+pp <- ggplot(bb,aes(name,num2,fill=cluster))+
+  geom_bar(stat="identity",position="stack",width=0.9)+
+  ggtitle("")+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))+
+  scale_fill_manual(values=c("#2f4858", "#72bcd5", "#FFD06F", "#c48466"))
+pp
+
+```
+
+```{r}
+DefaultAssay(Endothelial_cells) <- "SCT"
+
+genes_to_check = c('ACKR1','IL1R1', #veins
+                   'SLC7A5','MFSD2A', #capillaries
+                   'HEY1','IGFBP3', #arteries
+                   'CCL21','PROX1' #lymphatic ECs
+                   )
+DotPlot(Endothelial_cells, features = unique(genes_to_check),cols = c("#eeeeee", "#72BCD5"))+RotatedAxis()
+
+FeaturePlot(Endothelial_cells, features = c(                    
+                    'CCL21', #lymphatic ECs
+                    'HEY1', #arteries
+                    'MFSD2A', #capillaries
+                    'IL1R1' #veins
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#72BCD5"),combine = F)
+
+```
+
+###Mononeuclear_phagocytes
+
+```{r}
+Mononeuclear_phagocytes$group <- ordered(Mononeuclear_phagocytes$group,c("N","S","F","K"))
+UMAPPlot(Mononeuclear_phagocytes,split.by = "group",pt.size = 0.01, cols = c("#e76254", "#dd9397", "#9f558c", "#f3d8d8", "#cd5478", "#2f4858"))
+
+cluster  <- Idents(Mononeuclear_phagocytes)
+name <- Mononeuclear_phagocytes@meta.data[["group"]] 
+b <- as.data.frame(cluster)
+b$name <- name
+b$number <- 1
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+p <- ggplot(b,aes(x =name,y=percent,fill= cluster))+
+  geom_bar(stat="identity",position="stack")+
+  scale_fill_manual(values = c("#e76254", "#dd9397", "#9f558c", "#f3d8d8", "#cd5478", "#2f4858"))+
+  theme_bw()+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL));p
+
+```
+
+```{r}
+
+bn<- b[b$name=="N",]
+bn$num2 <- 1/5
+
+bs<- b[b$name=="S",]
+bs$num2 <- 1/4
+
+bf<- b[b$name=="F",]
+bf$num2 <- 1/2
+
+bk<- b[b$name=="K",]
+bk$num2 <- 1/6
+bb<- bind_rows(bn,bs,bf,bk)
+
+pp <- ggplot(bb,aes(name,num2,fill=cluster))+
+  geom_bar(stat="identity",position="stack",width=0.9)+
+  ggtitle("")+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))+
+  scale_fill_manual(values=c("#e76254", "#dd9397", "#9f558c", "#f3d8d8", "#cd5478", "#2f4858"))
+pp
+
+```
+
+```{r}
+DefaultAssay(Mononeuclear_phagocytes) <- "SCT"
+
+genes_to_check = c('XCR1','CLEC9A', #profile cDC1 
+                   'VCAN',"CD14", #profile monocyte 
+                   'CCL21','CCR7', #profile mature Dendritic cells
+                   'IGKC','EGLN3', #profile pDC 
+                   'FCER1A','CD1C',#cDC2 Dendritic cells
+                   'C1QB','CTSD'
+                   )
+DotPlot(Mononeuclear_phagocytes, features = unique(genes_to_check),cols = c("#eeeeee", "#E76254"))+RotatedAxis()
+
+
+FeaturePlot(Mononeuclear_phagocytes, features = c('C1QB',#profile 
+                                                  'CCL21', #profile mature Dendritic cells
+                                                  'VCAN', #profile monocyte 
+                                                  'CLEC9A', #profile cDC1 
+                                                  'CD1C',#cDC2 Dendritic cells
+                                                  'EGLN3' #profile pDC 
+),min.cutoff = 0.5, max.cutoff = 1.0,pt.size = 0.01, cols = c("#eeeeee", "#E76254"),combine = F)#3.05*3.5size
+
+```

@@ -1,0 +1,318 @@
+
+```{r}
+rm(list = ls()) 
+library(Seurat)
+library(SeuratData)
+library(patchwork)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(clustree)
+library(ggpubr)
+library(ggplot2)
+library(clusterProfiler)
+options(Seurat.object.assay.version = 'v5')
+```
+
+```{r} 
+load(file ="SAVE/Macrophage.Rdata")
+
+DefaultAssay(NSFK_Macrophage) <- "integrated"
+
+NSFK_Macrophage <- ScaleData(NSFK_Macrophage, verbose = FALSE)
+
+NSFK_Macrophage <- RunPCA(NSFK_Macrophage, npcs = 30, verbose = FALSE)
+DimHeatmap(NSFK_Macrophage, dims = 1:20, cells = 500, balanced = TRUE)
+
+NSFK_Macrophage <- FindNeighbors(NSFK_Macrophage, reduction = "pca", dims = 1:10)
+
+sce <- NSFK_Macrophage
+sce <- FindClusters(object = sce,resolution = c(seq(.1,1,.1)))
+clustree(sce@meta.data, prefix = "integrated_snn_res.")
+
+NSFK_Macrophage <- FindClusters(NSFK_Macrophage, resolution = 0.2)
+
+
+NSFK_Macrophage <- RunUMAP(NSFK_Macrophage, reduction = "pca", dims = 1:10)
+
+p1 <- DimPlot(NSFK_Macrophage, reduction = "umap", group.by = "group")
+p2 <- DimPlot(NSFK_Macrophage, reduction = "umap", label = TRUE, repel = TRUE)
+p1 + p2
+
+pM1 <- DimPlot(NSFK_Macrophage, reduction = "umap", split.by = "group",pt.size = 1)
+pM1
+ggsave(pM1,filename = "output/pM1.jpg",width = 6,height = 4)
+
+```
+
+```{r}
+Idents(NSFK_Macrophage) <- NSFK_Macrophage$group
+
+KNmarker <- FindMarkers(NSFK_Macrophage, logfc.threshold = 1, min.pct = 0.1,ident.1="K",ident.2 = "N",only.pos = F)
+
+write.csv(KNmarker,file = "SAVE/KNmarker.csv")
+
+Mac <- subset(NSFK_Macrophage,idents = c("N","K"))
+KN_data <- FetchData(Mac,vars = c(rownames(KNmarker),"group"))
+
+KN_data$group2 <- ifelse(KN_data$group=="N",0,1)
+KN_data <- select(KN_data,-795)
+
+lipid <- read.csv(file = "DATA/GeneCards-SearchResults.-lipid droplet.csv")
+lipid <- lipid[lipid$Relevance.score>10,]
+marker <- KNmarker[rownames(KNmarker) %in% lipid$Gene.Symbol,]
+```
+
+```{r}
+##
+set.seed(9196)
+library(glmnet)
+mod <- glmnet(KN_data[,1:794],KN_data[,795],family = "binomial",nfolds = 10)  
+plot(mod,xvar = 'lambda',label = T)
+
+cvmod <- cv.glmnet(as.matrix(KN_data[,1:794]),as.matrix(KN_data[,795]),family = "binomial")
+plot(cvmod)#4.00*6.00
+
+best_lambda <- cvmod$lambda.1se
+model_lasso <- glmnet(KN_data[,1:794],KN_data[,795],family = "binomial",lambda = best_lambda)
+gene_KN <- rownames(model_lasso$beta)[as.numeric(model_lasso$beta)!=0]
+coef_KN <- model_lasso$beta[as.numeric(model_lasso$beta)!=0]
+
+KNscore <- FetchData(NSFK_Macrophage,vars = c(gene_KN,"integrated_snn_res.0.2")) 
+
+for (i in 1:length(coef_KN)) {
+ KNscore[,i+38]  <- mutate(KNscore, score = KNscore[,i]*coef_KN[i])$score
+}
+KNrisk <- KNscore[,39:75]
+KNscore$score <- apply(KNrisk,1,sum)
+
+KNscore$cluster <- factor(KNscore$integrated_snn_res.0.2, levels = c('0', '1'))
+
+p <- ggplot(KNscore,
+            aes(x=factor(cluster,levels = c("0","1")),score,color = cluster,fill= cluster))+
+  stat_compare_means(aes(group = cluster),
+                     method = "wilcox.test",
+                     label = "p.signif",
+                     symnum.args = list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),symbols = c("***", "**", "*", "ns")))+
+  scale_color_manual(values=c('0'='#376795','1'='#e76254'))+
+  scale_fill_manual(values=alpha(c('0'='#376795','1'='#e76254'),0.3))+
+  labs(x="")
+p <- p+geom_boxplot(size=1,width=0.5,outlier.colour = NA)+scale_y_continuous(limits=c(0,3))+theme_classic()+RotatedAxis()
+p#3.05*3.75
+
+```
+
+```{r eval=FALSE, include=FALSE}
+id = bitr(rownames(KNmarker),'SYMBOL','ENTREZID','org.Hs.eg.db')
+GO_EN <- enrichGO(gene = id$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "ALL",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+ENresult <- GO_EN@result
+write.csv(ENresult,"SAVE/ENresult.csv")
+```
+
+```{r}
+regulonT <- read_tsv("SCENIC/output/Step2_regulonTargetsInfo.tsv")
+
+regulonT_sel <- regulonT[regulonT$TF== c('MITF','MAFB','MAF','CD59',"ETS2","FOSL2","BHLHE40","NFKB2",'CEBPB' ,'JUN' ,'JUND' ,'REL' ,'CREM','ETV3','NFKB1','IRF1'),]
+
+kn_gene <- regulonT_sel[regulonT_sel$gene %in% gene_KN,]
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(NSFK_Macrophage) <- "SCT"
+celltype_marker=c("IL1B", "CXCL2","CCL3","TNF","MMP9",#M1
+                  'MRC1',"CD163"#M2 
+                  )
+
+VlnPlot(NSFK_Macrophage,features = celltype_marker,pt.size = 0,ncol = 5)
+
+ggsave(filename = "output/NSFK_Macrophage_marker.png",device = "png",width = 44,height = 33,units = "cm")
+```
+
+```{r eval=FALSE, include=FALSE}
+DefaultAssay(NSFK_Macrophage) <- "RNA"
+
+NSFK_Macrophage_fp <- FeaturePlot(NSFK_Macrophage, features = c('PLIN2','MSR1',"MAFB"),min.cutoff = 0, max.cutoff = 1.0,
+            cols = if (F) {c("lightgrey", "#ff0000", "#00ff00")} else {c("lightgrey", "#376795")},combine = F,pt.size = 2)
+
+```
+
+```{r}
+Idents(NSFK_Macrophage) <- NSFK_Macrophage$integrated_snn_res.0.2
+new.cluster.ids <- c("KAM", #0
+                     "SAM"  #1
+                     )
+
+names(new.cluster.ids) <- levels(NSFK_Macrophage)
+NSFK_Macrophage <- RenameIdents(NSFK_Macrophage, new.cluster.ids)
+
+NSFK_Macrophage$group <- factor(NSFK_Macrophage$group,levels =c("N","S","F","K" ))
+
+NFS_p <- DimPlot(NSFK_Macrophage, 
+        reduction = "umap", 
+        label = F, 
+        pt.size = 0.5,split.by = "group" , cols = c('SAM'='#376795','KAM'='#e76254')
+        ) + NoLegend()
+
+ggsave(NFS_p,filename = "output/NSFK_Macrophage_NFS_p.pdf",device = "pdf",width = 8.8,height = 3.05)
+
+M12_p <- DimPlot(NSFK_Macrophage, 
+        reduction = "umap", 
+        label = F, 
+        pt.size = 0.5 ,cols=c('SAM'='#376795','KAM'='#e76254')
+        ) + NoLegend() +ggtitle("SAM-KAM")
+M12_p
+
+ggsave(M12_p,filename = "output/NSFK_Macrophage_M12_p.pdf",device = "pdf",width = 2.85,height = 3.05)
+
+saveRDS(NSFK_Macrophage,file = "SAVE/NSFK_Macrophage.Rds")
+```
+
+```{r}
+NSFK_Macrophage <- readRDS(file = "SAVE/NSFK_Macrophage.Rds")
+
+DimPlot(NSFK_Macrophage, 
+        reduction = "umap", 
+        label = F, 
+        pt.size = 0.5,group.by = "group" , cols = c("#376795", "#72bcd5", "#ffd06f", "#e76254"))
+
+cluster  <- Idents(NSFK_Macrophage)
+name <- NSFK_Macrophage@meta.data[["group"]] 
+b <- as.data.frame(cluster)
+b$name <- name
+b$number <- 1
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+pM2 <- ggplot(b,aes(name,percent,fill=cluster))+
+  geom_bar(stat="identity",position="stack",width=0.9)+
+  ggtitle("")+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))+
+  scale_fill_manual(values=c('SAM'='#376795','KAM'='#e76254'))
+pM2
+
+```
+
+```{r}
+
+bn<- b[b$name=="N",]
+bn$num2 <- 1/5
+
+bs<- b[b$name=="S",]
+bs$num2 <- 1/4
+
+bf<- b[b$name=="F",]
+bf$num2 <- 1/2
+
+bk<- b[b$name=="K",]
+bk$num2 <- 1/6
+bb<- bind_rows(bn,bs,bf,bk)
+
+pp <- ggplot(bb,aes(name,num2,fill=cluster))+
+  geom_bar(stat="identity",position="stack",width=0.9)+
+  ggtitle("")+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL))+
+  scale_fill_manual(values=c('SAM'='#376795','KAM'='#e76254'))
+pp
+```
+
+```{r}
+DefaultAssay(NSFK_Macrophage) <- "RNA"
+
+NSFK_Macrophage <- NormalizeData(NSFK_Macrophage)
+NSFK_Macrophage <- FindVariableFeatures(NSFK_Macrophage)
+NSFK_Macrophage$celltypes <- Idents(NSFK_Macrophage)
+
+M1_features <- list(c('CCL5', 'CCR7', 'CD40', 'CD86', 'CXCL9', 'CXCL10', 'CXCL11', 'IDO1', 'IL1A','IL1B', 'IL6', 'IRF1', 'IRF5', 'KYNU'))
+
+M2_features <- list(c('CCL4', 'CCL13', 'CCL18', 'CCL20', 'CCL22', 'CD276', 'CLEC7A', 'CTSA', 'CTSB', 'CTSC', 'CTSD','FN1', 'IL4R', 'IRF4', 'LYVE1', 'MMP9', 'MMP14', 'MMP19', 'MSR1', 'TGFB1', 'TGFB2', 'TGFB3', 'TNFSF8', 'TNFSF12', 'VEGFA', 'VEGFB', 'VEGFC'))
+
+M1score <- AddModuleScore(NSFK_Macrophage,
+                          features = M1_features,
+                          ctrl = 100,
+                          name = "M1_Features")
+
+M2score <- AddModuleScore(NSFK_Macrophage,
+                          features = M2_features,
+                          ctrl = 100,
+                          name = "M2_Features")
+
+colnames(M1score@meta.data)
+colnames(M1score@meta.data)[18] <- 'M1_Score'
+
+colnames(M2score@meta.data)
+colnames(M2score@meta.data)[18] <- 'M2_Score'
+
+VlnPlot(M1score,features = 'M1_Score',pt.size = 0, adjust = 2,group.by = "seurat_clusters")
+
+VlnPlot(M2score,features = 'M2_Score',pt.size = 0, adjust = 2,group.by = "seurat_clusters")
+```
+
+
+```{r}
+M1score_date <- FetchData(M1score,vars = c("celltypes","M1_Score")) 
+M1score_date$celltypes <- factor(M1score_date$celltypes, levels = c('SAM', 'KAM'))
+
+p3 <- ggplot(M1score_date,
+             aes(x=factor(celltypes,levels = c("SAM","KAM")),M1_Score,color= celltypes,fill= celltypes))+
+             stat_compare_means(aes(group = celltypes),
+                                method = "wilcox.test",
+                                label = "p.signif",
+                                symnum.args = list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),symbols = c("***", "**", "*", "ns")))+
+             scale_color_manual(values=c('SAM'='#376795','KAM'='#e76254'))+
+             scale_fill_manual(values=alpha(c('SAM'='#376795','KAM'='#e76254'),0.3))+
+             labs(x="")
+p3 <- p3+geom_boxplot(size=1,width=0.5)+theme_classic()+RotatedAxis()
+p3
+
+M2score_date <- FetchData(M2score,vars = c("celltypes","M2_Score"))
+M2score_date$celltypes <- factor(M2score_date$celltypes, levels = c('SAM', 'KAM'))
+p4 <- ggplot(M2score_date,aes(x=factor(celltypes,levels =c("SAM","KAM" )),M2_Score,color=celltypes,fill=celltypes))+
+          stat_compare_means(aes(group = celltypes),
+          method = "wilcox.test",
+          label = "p.signif",
+          symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+          symbols = c("***", "**", "*", "ns")))+
+          scale_color_manual(values=c('SAM'='#376795','KAM'='#e76254'))+
+          scale_fill_manual(values=alpha(c('SAM'='#376795','KAM'='#e76254'),0.3))+
+            labs(x="")
+p4 <- p4+geom_boxplot(size=1,width=0.5)+theme_classic()+RotatedAxis()
+p4
+
+p34<- p3+p4+plot_layout(guides = 'collect')+NoLegend()
+ggsave(p34,filename = "output/NSFK_Macrophage_p34.pdf",device = "pdf",width = 10,height = 6,units = "cm")
+#3.05*3.85
+```
+
+```{r}
+
+M_score <- M1score
+M_score$M2_Score <- M2score_date$M2_Score
+
+p5 <- FeatureScatter(M_score, 
+                     feature1 = "M1_Score", 
+                     feature2 = "M2_Score",pt.size = 0.5,cols = c('SAM'='#376795','KAM'='#e76254')
+                     );p5
+#3.05*3.75
+```
+
+```{r}
+DefaultAssay(NSFK_Macrophage) <- "SCT"
+marker2 <- c('GAB1','MAFB','RAB3GAP1','MDM2','HNRNPU','NF1','HSPA8','PICALM','FAM53C','PRKAR1A','USP33','PREX1','TXNIP','KAT7','KSR1','GLUD1','NDE1','CST7')
+marker2 <- rev(marker2)
+
+DotPlot(NSFK_Macrophage,features = marker2,cols = c("#eeeeee", "#e76254"))+coord_flip()
+```
+
+```{r}
+DotPlot(NSFK_Macrophage,features =c('TET1','TET2','TET3'),cols = c("#eeeeee", "#e76254"))+coord_flip()
+```

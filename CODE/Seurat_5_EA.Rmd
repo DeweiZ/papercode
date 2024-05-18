@@ -1,0 +1,233 @@
+
+```{r}
+rm(list = ls())  
+library(Seurat)
+library(patchwork)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(tidyverse)
+library(gplots)
+library(ggplot2)
+library(ggthemes)
+library(scRNAtoolVis)
+```
+
+```{r}
+FS_Macrophage <- readRDS("SAVE/NSFK_Macrophage.Rds")
+FS_Macrophage_markers <- FindAllMarkers(FS_Macrophage, logfc.threshold = 0.25, min.pct = 0.1,only.pos = FALSE )
+
+jjVolcano(diffData = FS_Macrophage_markers,
+          log2FC.cutoff = 1, 
+          size  = 4 ,
+          pSize = 1 ,
+          fontface = 'italic', 
+          aesCol = c('#376795','#e76254'), 
+          tile.col = c('#376795','#e76254') , 
+          topGeneN = 5 
+         )
+
+KAM_marker <- FindMarkers(FS_Macrophage,ident.1 = "KAM",ident.2 = "SAM")
+write.csv(KAM_marker,file = "output/KAM_marker.csv")
+```
+
+```{r}
+#SAM
+M2.markers <- subset(FS_Macrophage_markers,FS_Macrophage_markers$cluster=="SAM")
+
+test_p <- M2.markers$p_val <= 0.05 #p.value<0.05
+test_up <- M2.markers$avg_log2FC >=0.25 
+test_down <- M2.markers$avg_log2FC <=-0.25 
+
+M2.markers <- mutate(M2.markers, regulation=test_p+test_up+10*test_down, change = "")
+
+M2.markers[M2.markers$regulation==2,"change"] <- "up"
+M2.markers[M2.markers$regulation==11,"change"] <- "down"
+M2.markers[M2.markers$regulation==0|M2.markers$regulation==1|M2.markers$regulation==10,"change"] <- "none"
+
+save(M2.markers,file = "SAVE/M2_marker.Rdata")
+
+table(M2.markers[,9]=="up")
+```
+
+```{r}
+rm(list = ls()) 
+#M2
+load(file ="SAVE/M2_marker.Rdata")
+M2_markers <- M2.markers
+ids1 = bitr(M2_markers$gene,'SYMBOL','ENTREZID','org.Hs.eg.db')
+M2_markers = merge(M2_markers,ids1,by.x='gene',by.y='SYMBOL')
+```
+
+```{r}
+
+M2_markers_BP <- enrichGO(gene = M2_markers$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "BP",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_dot <- dotplot(M2_markers_BP,color = "p.adjust",title = "Biological Process")
+p_dot <- p_dot + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#f8ac8c", high = "#c82423")
+p_dot
+ggsave(p_dot,filename = "output/M2_markers_BP.pdf",device = "pdf",width = 16,height = 16,units = "cm")
+
+```
+
+```{r}
+## GO的MF富集 
+M2_markers_MF <- enrichGO(gene = M2_markers$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "MF",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_dot <- dotplot(M2_markers_MF,color = "p.adjust",title = "Molecular Function")
+p_dot <- p_dot + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#f8ac8c", high = "#c82423")
+p_dot
+ggsave(p_dot,filename = "output/M2_markers_MF.pdf",device = "pdf",width = 16,height = 16,units = "cm")
+
+```
+
+```{r}
+
+M2_markers_CC <- enrichGO(gene = M2_markers$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "CC",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_dot <- dotplot(M2_markers_CC,color = "p.adjust",title = "Cellular Component")
+p_dot <- p_dot + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#f8ac8c", high = "#c82423")
+p_dot
+ggsave(p_dot,filename = "output/M2_markers_CC.pdf",device = "pdf",width = 16,height = 16,units = "cm")
+```
+
+```{r}
+p_all <- barplot(M2_markers_BP,showCategory = 10)+ggtitle("M2_markers Biological process")
+p_all
+
+geneList <- M2_markers$avg_log2FC
+names(geneList) <-  M2_markers$gene
+M2_markers_BP <- setReadable(M2_markers_BP, 'org.Hs.eg.db', 'ENTREZID')
+geneList
+p_cne<- cnetplot(M2_markers_BP,categorySize="pvalue",foldChange=geneList,circular = TRUE, colorEdge = TRUE)
+p_cne <- p_cne+scale_color_gradientn(colours = c("green","blue", "red"))
+p_cne
+
+p_heat<- heatplot(M2_markers_BP);p_heat
+
+```
+
+```{r}
+
+M2_markers_scar <- M2_markers
+
+gene_up = M2_markers_scar[M2_markers_scar$change == 'up','ENTREZID'] 
+gene_down = M2_markers_scar[M2_markers_scar$change == 'down','ENTREZID'] 
+gene_diff = c(gene_up,gene_down)
+
+kk.up <- enrichKEGG(gene         = gene_up,
+                      organism     = 'hsa',pvalueCutoff=0.05,pAdjustMethod="BH",qvalueCutoff=0.05)
+kk.down <- enrichKEGG(gene         =  gene_down,
+                        organism     = 'hsa',pvalueCutoff=0.05,pAdjustMethod="BH",qvalueCutoff=0.05)
+kk.diff <- enrichKEGG(gene         = gene_diff,
+                        organism     = 'hsa',pvalueCutoff=0.05,pAdjustMethod="BH",qvalueCutoff=0.05)
+
+table(kk.diff@result$p.adjust<0.05)
+table(kk.up@result$p.adjust<0.05)
+table(kk.down@result$p.adjust<0.05)
+```
+
+```{r}
+
+down_kegg <- kk.down@result %>%
+  filter(pvalue<0.05) %>% 
+  mutate(group=-1) 
+
+up_kegg <- kk.up@result %>%
+  filter(pvalue<0.05) %>%
+  mutate(group=1)
+
+id_path <- c("Phagosome","Lysosome","Antigen processing and presentation","Hematopoietic cell lineage","Osteoclast differentiation","Cell adhesion molecules","Th1 and Th2 cell differentiation","Protein processing in endoplasmic reticulum","Cholesterol metabolism","Leukocyte transendothelial migration","ECM-receptor interaction","PPAR signaling pathway")
+id_path_kegg <- up_kegg[(up_kegg$Description %in% id_path),] 
+
+  dat= id_path_kegg 
+  colnames(dat)
+  dat$pvalue = -log10(dat$pvalue)
+  dat$pvalue=dat$pvalue*dat$group 
+  
+  dat=dat[order(dat$pvalue,decreasing = F),]
+  
+  id_path_kegg_plot <- ggplot(dat,aes(reorder(Description, pvalue), y=pvalue)) +
+    geom_bar(aes(fill=factor((pvalue>0)+1)),stat="identity", width=0.7, position=position_dodge(0.7)) +
+    coord_flip() +
+    scale_fill_manual(values=c("#f8ac8c"), guide="none") +
+    labs(x="", y="" ) +
+    theme_pander()  +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line.x = element_line(size = 0.3, colour = "black"),
+          axis.ticks.length.x = unit(-0.20, "cm"),
+          axis.text.x = element_text(margin = margin(t = 0.3, unit = "cm")),
+          axis.ticks.x = element_line(colour = "black",size = 0.3) ,                     
+          axis.ticks.y = element_blank(),
+          axis.text.y  = element_text(hjust=0),
+          panel.background = element_rect(fill=NULL, colour = 'white'))
+    id_path_kegg_plot    
+ggsave(id_path_kegg_plot,filename = "output/id_path_kegg_plot.pdf",device = "pdf",width = 16,height = 16,units = "cm")
+
+source("kegg_plot_function.R")
+
+g_kegg <- kegg_plot(up_kegg,down_kegg)
+g_kegg
+
+ggsave(g_kegg,filename = 'output/kegg_up_down.png',width = 12,height = 9)
+```
+
+```{r}
+pathway<- kk.diff@result
+saveRDS(pathway,file = "SAVE/pathway.RDS")
+write.csv(pathway,file = "output/pathway.csv")
+
+colnames(pathway)
+pathway_a10 <- pathway[pathway$Count>10,]
+
+ggplot(data = pathway_a10 ,mapping = aes(x = Count,y = Description))+
+  geom_point(aes(color= -log10(pvalue),size = Count)) +
+  scale_colour_gradient(high = 'red',low = 'blue') +
+  theme_bw()+
+  labs(title = 'KEGG_enrich',
+       x = 'Enrich_factor',
+       y = 'Description')
+
+pathway$enfold <- apply(pathway,1,function(x){
+  GeneRatio=eval(parse(text=x["GeneRatio"]))
+  BgRatio=eval(parse(text=x["BgRatio"]))
+  enrichment_fold=round(GeneRatio/BgRatio,2)
+  enrichment_fold
+})
+
+pathway_a5 <- pathway[pathway$enfold>2,]
+
+ggplot(data = pathway_a5 ,mapping = aes(x = enfold,y = Description))+
+  geom_point(aes(color= -log10(pvalue),size = Count)) +
+  scale_colour_gradient(high = 'red',low = 'blue') +
+  theme_bw()+
+  labs(title = 'KEGG_enrich',
+       x = 'Enrich_factor',
+       y = 'Description')
+
+```
+

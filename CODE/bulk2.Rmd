@@ -1,0 +1,337 @@
+
+```{r}
+rm(list = ls()) 
+library(clusterProfiler)
+library(ggthemes)
+library(gplots)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+```
+
+```{r}
+deg_wgcna <- read.csv(file = "output/deg_wgcna.csv")
+
+load("input/step1.rdata")
+deg_limma  <- deg[!deg$change =="stable",]
+
+deg_bulk <- deg_limma[deg_limma$probe_id %in% deg_wgcna$x,]
+write.csv(deg_bulk,file = "output/deg_bulk.csv")
+
+deg_mo <- readRDS("D:/Users/Administrator/Desktop/SJY NSKF - 2/output/Track_genes.RDS")
+write.csv(deg_mo,"output/deg_monocle3.csv")
+
+deg_M2 <- read.csv("D:/Users/Administrator/Desktop/SJY NSKF - 2/output/KAM_marker.csv")
+
+logFC_t=1
+P.Value_t = 0.05
+k1 = (deg_M2$p_val < P.Value_t)&(deg_M2$avg_log2FC < -logFC_t)
+k2 = (deg_M2$p_val < P.Value_t)&(deg_M2$avg_log2FC > logFC_t)
+deg_M2 <- mutate(deg_M2,change = ifelse(k1,"down",ifelse(k2,"up","stable")))
+deg_M2  <- deg_M2[!deg_M2$change =="stable",]
+table(deg_M2$change)
+
+deg_scrna <- deg_M2[deg_M2$X %in% deg_mo$gene_short_name,]
+write.csv(deg_scrna,"output/deg_scrna.csv")
+
+```
+
+```{r}
+
+deg_4x <- merge(deg_bulk,deg_scrna,by.x = "probe_id",by.y = "X")
+deg_4x <- deg_4x[,c(1:2,10,12,16)]
+write.csv(deg_4x ,"output/deg_4x.csv")
+
+lipid <- read.csv(file = "D:/Users/Administrator/Desktop/SJY NSKF - 2/DATA/GeneCards-SearchResults.-lipid droplet.csv")
+lipid <- lipid[lipid$Relevance.score>10,]
+
+bulk_lipid <- merge(deg_bulk,lipid,by.x ="probe_id",by.y="Gene.Symbol")
+write.csv(bulk_lipid ,"output/bulk_lipid.csv")
+
+deg_MAF <- read.csv("D:/Users/Administrator/Desktop/SJY NSKF - 2/SCENIC/regulonT_MAF.csv",row.names=1)
+deg_MAF2 <- deg_bulk[deg_bulk $probe_id %in% deg_MAF$gene,]
+deg_MAF2$TF <- "MAF"
+
+deg_MAFB <- read.csv("D:/Users/Administrator/Desktop/SJY NSKF - 2/SCENIC/regulonT_MAFB.csv",row.names=1)
+deg_MAFB2 <- deg_bulk[deg_bulk $probe_id %in% deg_MAFB$gene,]
+deg_MAFB2$TF <- "MAFB"
+
+deg_MAF_B <- rbind(deg_MAF2,deg_MAFB2)
+
+write.csv(deg_MAF_B,"output/deg_MAF_B.csv")
+```
+
+```{r}
+
+library(VennDiagram)
+A <- deg_mo$gene_short_name
+B <- deg_M2$X
+C <- deg_wgcna$x
+D <- deg_limma$probe_id
+
+venn.plot <- venn.diagram(
+  list(monocle3=A,seurat=B,wgcna=C,limma=D),
+  filename = "output/GSE_DEGsvenn.tiff",
+  lty = 1,
+  lwd = 1,
+  col = c("#376795", "#72bcd5", "#ffd06f", "#e76254"),
+  fill = c("#376795", "#72bcd5", "#ffd06f", "#e76254"),
+  alpha = 0.60,
+  cat.col = "black",
+  cat.cex = 0.8,
+  cat.fontface = "bold",
+  margin = 0.07,
+  cex = 0.8,scaled = FALSE,
+  disable.logging = T
+)
+```
+
+```{r}
+deg_TF <- rbind(deg_MAF,deg_MAFB)
+deg_TF <- deg_TF [!duplicated(deg_TF$gene),]
+A <- deg_TF$gene
+B <- deg_wgcna$x
+C <- deg_limma$probe_id
+
+venn.plot <- venn.diagram(
+  list(scenic=A,wgcna=B,limma=C),
+  filename = "output/GSE_DEGsvenn2.tiff",
+  lty = 1,
+  lwd = 1,
+  col = c("#376795", "#ffd06f", "#e76254"), 
+  fill = c("#376795", "#ffd06f", "#e76254"),
+  alpha = 0.60,
+  cat.col = "black",
+  cat.cex = 0.8,
+  cat.fontface = "bold",
+  margin = 0.07,
+  cex = 0.8,scaled = FALSE,
+  disable.logging = T
+)
+```
+
+#bulk
+```{r}
+ids = bitr(deg_bulk$probe_id,'SYMBOL','ENTREZID','org.Hs.eg.db')
+deg_bulk  = merge(deg_bulk,ids,by.x='probe_id',by.y='SYMBOL')
+```
+#scrna
+```{r}
+ids = bitr(deg_scrna$X,'SYMBOL','ENTREZID','org.Hs.eg.db')
+deg_scrna  = merge(deg_scrna,ids,by.x='X',by.y='SYMBOL')
+```
+
+```{r}
+bulk_all <-enrichGO(deg_bulk$ENTREZID,
+              OrgDb = 'org.Hs.eg.db',
+              keyType = "ENTREZID",
+              ont = "ALL",
+              pvalueCutoff = 0.01,
+              qvalueCutoff = 0.05,
+              readable = T)
+
+scrna_all <-enrichGO(deg_scrna$ENTREZID,
+              OrgDb = 'org.Hs.eg.db',
+              keyType = "ENTREZID",
+              ont = "ALL",
+              pvalueCutoff = 0.01,
+              qvalueCutoff = 0.05,
+              readable = T)
+
+barplot(bulk_all, split="ONTOLOGY",showCategory = 20,color = "p.adjust",title = "Bulk GO")+
+  facet_grid(ONTOLOGY~., scale="free")+ 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+
+ggsave("bulk_all_barplot.pdf",device="pdf",width = 20,height = 80,units = "cm")
+
+barplot(scrna_all, split="ONTOLOGY",showCategory = 20,color = "p.adjust",title = "SC GO")+
+  facet_grid(ONTOLOGY~., scale="free")+ 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+
+ggsave("scrna_all_barplot.pdf",device="pdf",width = 20,height = 80,units = "cm")
+```
+
+#TF
+```{r}
+deg_MAF_B <- deg_MAF_B [!duplicated(deg_MAF_B$gene),]
+library(GOplot)
+MAF_B <-enrichGO(deg_MAF_B$EntrezID,
+              OrgDb = 'org.Hs.eg.db',
+              keyType = "ENTREZID",
+              ont = "ALL",
+              pvalueCutoff = 0.05,
+              qvalueCutoff = 0.05,
+              readable = T)
+go1 <- as.data.frame(MAF_B)
+go1 <- go1[,c(1,2,3,7,9)]
+colnames(go1) <- c("category", "ID", "term", "adj_pval", "genes")
+go1$genes <- gsub("/", ",", go1$genes)
+go2 <- deg_MAF_B[,1:2]
+colnames(go2) <- c("ID","logFC")
+
+genename <- NULL
+
+for (i in c(1:9)){
+
+genelist <- c(go1[i,5])
+
+temp <- strsplit(genelist,",",)[[1]]
+
+genename <- append(genename,temp,after = length(genename))
+
+}
+
+genename <- genename[-which(duplicated(genename))]
+
+genename
+
+diffgene <- go2[which(go2$ID %in% genename),] 
+
+circ <- circle_dat(go1,diffgene)
+chord <- chord_dat(circ,diffgene,go1$term)
+pdf("chord_demo.pdf",height = 16,width = 15)
+GOChord(chord,space = 0.02,gene.order = "logFC",gene.space = 0.3,gene.size = 4,process.label =15,lfc.col=c('#376795',"#eeeeee"),ribbon.col=colorRampPalette(c("#376795", "#72bcd5", "#eeeeee","#ffd06f", "#e76254"))(length(go1$term)))  
+dev.off()
+```
+
+```{r}
+go <- as.data.frame(bulk_all)
+
+go_MF<-go [go $ONTOLOGY=="MF",][1:10,]
+go_CC<-go [go $ONTOLOGY=="CC",][1:10,]
+go_BP<-go [go $ONTOLOGY=="BP",][1:10,]
+go_enrich_df <- data.frame(ID=c(go_BP$ID, go_CC$ID, go_MF$ID),
+                         Description=c(go_BP$Description, go_CC$Description, go_MF$Description),
+                         GeneNumber=c(go_BP$Count, go_CC$Count, go_MF$Count),
+                         type=factor(c(rep("biological process", 10), rep("cellular component", 10),rep("molecular function",10)),levels=c("molecular function", "cellular component", "biological process")))
+
+go_enrich_df$number <- factor(rev(1:nrow(go_enrich_df)))
+
+
+labels = go_enrich_df$Description
+names(labels) = rev(1:nrow(go_enrich_df))
+
+CPCOLS <- c("#8DA1CB", "#FD8D62", "#66C3A5")
+
+p <- ggplot(data=go_enrich_df, aes(x=number, y=GeneNumber, fill=type)) +
+  geom_bar(stat="identity", width=0.8) + coord_flip() + 
+  scale_fill_manual(values = CPCOLS) + theme_test() + 
+  scale_x_discrete(labels=labels) +
+  xlab("GO term") + 
+  theme(axis.text=element_text(face = "bold", color="gray50")) +
+  labs(title = "The Most Enriched GO Terms")
+
+```
+
+```{r}
+
+deg_bulk_BP <- enrichGO(gene = deg_bulk$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "BP",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_bar1 <- barplot(deg_bulk_BP, drop = TRUE, showCategory =20,color = "p.adjust",title = "Biological Process")+theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+scale_color_gradient(low = "#376795", high = "#e76254")
+
+p_bar1
+
+```
+
+```{r}
+
+deg_bulk_MF <- enrichGO(gene = deg_bulk$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "MF",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_bar2 <- barplot(deg_bulk_MF,color = "p.adjust",title = "Molecular Function",showCategory = 20)
+p_bar2 <- p_bar2 + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+p_bar2
+
+```
+
+```{r}
+
+deg_bulk_CC <- enrichGO(gene = deg_bulk$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "CC",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_bar3 <- barplot(deg_bulk_CC,color = "p.adjust",title = "Cellular Component",showCategory = 20)
+p_bar3 <- p_bar3 + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+p_bar3
+
+bulk_barplot <- p_bar1/p_bar2/p_bar3
+
+ggsave("bulk_barplot.pdf",device="pdf",width = 20,height = 70,units = "cm")
+```
+
+```{r}
+deg_scrna_BP <- enrichGO(gene = deg_scrna$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "BP",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_bar1 <- barplot(deg_scrna_BP,color = "p.adjust",title = "Biological Process",showCategory = 20)
+p_bar1 <- p_bar1 + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+p_bar1
+
+```
+
+```{r}
+deg_scrna_MF <- enrichGO(gene = deg_scrna$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "MF",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_bar2 <- barplot(deg_scrna_MF,color = "p.adjust",title = "Molecular Function",showCategory = 20)
+p_bar2 <- p_bar2 + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+p_bar2
+
+```
+
+```{r}
+
+deg_scrna_CC <- enrichGO(gene = deg_scrna$ENTREZID,
+                   OrgDb         = 'org.Hs.eg.db',
+                   keyType       = 'ENTREZID',
+                   ont           = "CC",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff  = 0.01,
+                   qvalueCutoff  = 0.05)
+
+p_bar3 <- barplot(deg_scrna_CC,color = "p.adjust",title = "Cellular Component",showCategory = 20)
+p_bar3 <- p_bar3 + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 0.5))+
+  scale_color_gradient(low = "#376795", high = "#e76254")
+p_bar3
+
+scrna_barplot <- p_bar1/p_bar2/p_bar3
+
+ggsave("scrna_barplot.pdf",device="pdf",width = 20,height = 80,units = "cm")
+```
+

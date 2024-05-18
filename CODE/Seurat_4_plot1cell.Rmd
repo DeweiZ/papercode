@@ -1,0 +1,149 @@
+
+```{r}
+rm(list = ls())
+library(plot1cell)
+library(Seurat) 
+library(tidyverse)
+library(stringr)
+library(RColorBrewer)
+```
+
+```{r}
+
+load(file = "SAVE/pbmc_NSFK_AN.Rdata")
+Fibroblasts<- readRDS(file = "SAVE/pbmc_NSFK_Fibroblasts.Rds")
+T_cells <- readRDS(file = "SAVE/pbmc_NSFK_T_cells.Rds")
+Endothelial_cells <- readRDS(file = "SAVE/pbmc_NSFK_Endothelial_cells.Rds")
+Mononeuclear_phagocytes <- readRDS(file = "SAVE/pbmc_NSFK_Mononeuclear_phagocytes.Rds")
+
+```
+
+```{r}
+#8*5.18
+circ_data <- prepare_circlize_data(pbmc_NSFK, scale = 0.7)
+set.seed(96)
+
+length(levels(pbmc_NSFK))
+cluster_colors <- c("#72BCD5", "#376795", "#bda5ac", "#649b92", "#E76254", "#9a4700", "#915067", "#007664", "#FFD06F")
+
+group_colors <-rand_color(length(names(table(pbmc_NSFK$group))))
+
+plot_circlize(circ_data,do.label = F, pt.size = 0.01, 
+              col.use = cluster_colors ,
+              bg.color = 'white', 
+              kde2d.n = 1000, 
+              repel = T, 
+              label.cex = 0.6)
+
+source(file = "plot_circlize_change.R")
+
+plot_circlize_change(circ_data,do.label = F, pt.size = 0.01, 
+              col.use = cluster_colors ,
+              bg.color = 'white', 
+              kde2d.n = 1000, 
+              repel = T, 
+              labels.cex = 1, 
+              circos.cex = 0.5,
+              label.cex = 0.7)
+
+group_colors <- c("#72BCD5", "#376795", "#E76254", "#FFD06F")
+add_track(circ_data, 
+          group = "group", 
+          colors = group_colors, track_num = 2)
+
+```
+
+```{r}
+my36colors <-c("#376795", "#96e785", "#00aeb6", "#f9f871")
+###Fibroblast subtypes
+subcolors <- my36colors[1:nlevels(Fibroblasts)]
+#PIF;MF;SRF;SPF
+Fibroblasts_meta <- get_metadata(Fibroblasts, color = subcolors)
+Fibroblasts_meta %>%
+  dplyr::group_by(Cluster) %>%
+  summarize(x = median(x = x),y = median(x = y)) -> centers_Fib
+
+points(Fibroblasts_meta$x*0.32-1.2,Fibroblasts_meta$y*0.32-0.73, pch = 19, col = alpha(Fibroblasts_meta$Colors,0.5), cex = 0.1);
+text(centers_Fib$x*0.32-1.2,centers_Fib$y*0.32-0.73, labels=centers_Fib$Cluster, cex = 0.6, col = 'black')
+
+my36colors <-c("#ffd06f", "#007664", "#649b92","#2F4858","#4E4637")
+#T subtypes
+subcolors <- my36colors[1:nlevels(T_cells)]
+#CD4;CD8;Treg
+T_meta <-get_metadata(T_cells, color = subcolors)
+T_meta %>%
+  dplyr::group_by(Cluster) %>%
+  summarize(x = median(x = x),y = median(x = y)) -> centers_T
+
+points(T_meta$x*0.32+1.2,T_meta$y*0.32+0.73, pch = 19, col = alpha(T_meta$Colors,0.5), cex = 0.1);
+text(centers_T$x*0.32+1.2,centers_T$y*0.32+0.73, labels=centers_T$Cluster, cex = 0.6, col = 'black')
+
+my36colors <-c("#2f4858", "#72bcd5", "#FFD06F", "#c48466")
+#Endothelial subtypes
+subcolors <- my36colors[1:nlevels(Endothelial_cells)]
+#Vein;CP;Art;Lym
+Endothelial_meta<-get_metadata(Endothelial_cells, color = subcolors)
+Endothelial_meta %>%
+  dplyr::group_by(Cluster) %>%
+  summarize(x = median(x = x),y = median(x = y)) -> centers_Endo
+
+points(Endothelial_meta$x*0.32-1.2,Endothelial_meta$y*0.32+0.73, pch = 19, col = alpha(Endothelial_meta$Colors,0.5), cex = 0.1);
+text(centers_Endo$x*0.32-1.2,centers_Endo$y*0.32+0.73, labels=centers_Endo$Cluster, cex = 0.6, col = 'black')
+
+my36colors <-c("#e76254", "#dd9397", "#9f558c", "#f3d8d8", "#cd5478", "#2f4858")
+##Mononeuclear_phagocytes subtype
+subcolors <- my36colors[1:nlevels(Mononeuclear_phagocytes)]
+#Mac;cDC2;pDC;mDC;Mono;cDC1
+Mononeuclear_phagocytes_meta<-get_metadata(Mononeuclear_phagocytes, color = subcolors)
+Mononeuclear_phagocytes_meta %>%
+  dplyr::group_by(Cluster) %>%
+  summarize(x = median(x = x),y = median(x = y)) -> centers_Mph
+
+points(Mononeuclear_phagocytes_meta$x*0.3+1.2,Mononeuclear_phagocytes_meta$y*0.3-0.73, pch = 19, col = alpha(Mononeuclear_phagocytes_meta$Colors,0.5), cex = 0.1);
+text(centers_Mph$x*0.3+1.2,centers_Mph$y*0.3-0.73, labels=centers_Mph$Cluster, cex = 0.6, col = 'black')
+```
+
+```{r}
+title_text <- function(x0, y0, x1, y1, text, rectArgs = NULL, textArgs = NULL) {
+  center <- c(mean(c(x0, x1)), mean(c(y0, y1)))
+  do.call('rect', c(list(xleft = x0, ybottom = y0, xright = x1, ytop = y1), rectArgs))
+  do.call('text', c(list(x = center[1], y = center[2], labels = text), textArgs))
+}
+
+title_text(x0 = -1.35, x1 = -1.05, y0 = -1.06, y1=-1, text = 'Fibroblasts',
+           rectArgs = list(border='#F9F2E4',lwd=0.5),
+           textArgs = list(col='black',cex = 1))
+
+title_text(x0 = 1.05, x1 = 1.35, y0 = -1.06, y1=-1, text = 'Mononeuclear phagocytes',
+           rectArgs = list(border='#F9F2E4',lwd=0.5),
+           textArgs = list(col='black',cex = 1))
+
+title_text(x0 = -1.35, x1 = -1.05, y0 = 1.06, y1=1, text = 'Endothelial cells',
+           rectArgs = list(border='#F9F2E4',lwd=0.5),
+           textArgs = list(col='black',cex = 1))
+
+title_text(x0 = 1.05, x1 = 1.35, y0 = 1.06, y1=1, text = 'T cells',
+           rectArgs = list(border='#F9F2E4',lwd=0.5),
+           textArgs = list(col='black',cex = 1))
+```
+
+```{r}
+col_use <- c('#00288A','#DD001F','#84D000','#00CB47','#947F00','#006234','#58A4C3', '#E4C755', '#F7F398')
+cc <- get_metadata(pbmc_NSFK, color = col_use)
+cc %>%
+  dplyr::group_by(Cluster) %>%
+  summarize(x = median(x = x),y = median(x = y)) -> centers
+
+lgd_points = Legend(labels = names(table(cc$group)), type = "points", 
+                    title_position = "topleft", 
+                    title = "Group",
+                    title_gp = gpar(col='black',fontsize = 7, fontface='bold'),
+                    legend_gp = gpar(col = group_colors),
+                    labels_gp = gpar(col='black',fontsize = 5),
+                    grid_height = unit(2, "mm"),
+                    grid_width = unit(2, "mm"),
+                    background = group_colors)
+draw(lgd_points, x = unit(15, "mm"), y = unit(100, "mm"),
+     just = c("right", "bottom"))
+```
+

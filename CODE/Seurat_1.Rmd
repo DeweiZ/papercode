@@ -1,0 +1,263 @@
+
+```{r}
+rm(list = ls())
+options(stringsAsFactors = F)
+library(Seurat)
+library(devtools)
+library(SeuratData)
+library(patchwork)
+library(DoubletFinder)
+library(tidyverse)
+library(ggplot2)
+library(glmGamPoi)
+```
+
+```{r}
+
+pbmc_N1 <- Read10X(data.dir = "DATA/GSE130973/")
+
+pbmc_S1 <- Read10X(data.dir = "DATA/GSA_DATA/GSS1/")
+pbmc_S2 <- Read10X(data.dir = "DATA/GSA_DATA/GSS2/")
+pbmc_S3 <- Read10X(data.dir = "DATA/GSA_DATA/GSS3/")
+pbmc_S4 <- Read10X(data.dir = "DATA/GSA_DATA/GSS4/")
+
+pbmc_F1 <- Read10X(data.dir = "DATA/SJY_DATA/F1/")
+pbmc_F2 <- Read10X(data.dir = "DATA/SJY_DATA/F2/")
+
+pbmc_K1 <- Read10X(data.dir = "DATA/SJY_DATA/K1/")
+pbmc_K2 <- Read10X(data.dir = "DATA/SJY_DATA/K2/")
+pbmc_K3 <- Read10X(data.dir = "DATA/GSA_DATA/GK1/")
+pbmc_K4 <- Read10X(data.dir = "DATA/GSA_DATA/GK2/")
+pbmc_K5 <- Read10X(data.dir = "DATA/GSA_DATA/GK3/")
+pbmc_K6 <- Read10X(data.dir = "DATA/GSA_DATA/GK4/")
+```
+
+```{r}
+
+pbmc_N1 <- CreateSeuratObject(counts = pbmc_N1, 
+                           project = "pbmc_N", 
+                           min.cells = 5, 
+                           min.features = 200)
+
+pbmc_S1 <- CreateSeuratObject(counts = pbmc_S1, 
+                           project = "pbmc_S", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_S2 <- CreateSeuratObject(counts = pbmc_S2, 
+                           project = "pbmc_S", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_S3 <- CreateSeuratObject(counts = pbmc_S3, 
+                           project = "pbmc_S", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_S4 <- CreateSeuratObject(counts = pbmc_S4, 
+                           project = "pbmc_S", 
+                           min.cells = 5, 
+                           min.features = 200)
+
+pbmc_F1 <- CreateSeuratObject(counts = pbmc_F1, 
+                           project = "pbmc_F", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_F2 <- CreateSeuratObject(counts = pbmc_F2, 
+                           project = "pbmc_F", 
+                           min.cells = 5, 
+                           min.features = 200)
+
+pbmc_K1 <- CreateSeuratObject(counts = pbmc_K1, 
+                           project = "pbmc_K", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_K2 <- CreateSeuratObject(counts = pbmc_K2, 
+                           project = "pbmc_K", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_K3 <- CreateSeuratObject(counts = pbmc_K3, 
+                           project = "pbmc_K", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_K4 <- CreateSeuratObject(counts = pbmc_K4, 
+                           project = "pbmc_K", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_K5 <- CreateSeuratObject(counts = pbmc_K5, 
+                           project = "pbmc_K", 
+                           min.cells = 5, 
+                           min.features = 200)
+pbmc_K6 <- CreateSeuratObject(counts = pbmc_K6, 
+                           project = "pbmc_K", 
+                           min.cells = 5, 
+                           min.features = 200)
+
+change_1 <- t(data.frame(
+dim(pbmc_N1),
+dim(pbmc_S1),dim(pbmc_S2),dim(pbmc_S3),dim(pbmc_S4),
+dim(pbmc_F1),dim(pbmc_F2),
+dim(pbmc_K1),dim(pbmc_K2),dim(pbmc_K3),dim(pbmc_K4),dim(pbmc_K5),dim(pbmc_K6)
+))
+
+```
+
+```{r}
+
+pbmc_N1[["percent.mt"]] <- PercentageFeatureSet(pbmc_N1, pattern = "^MT-")
+
+pbmc_S1[["percent.mt"]] <- PercentageFeatureSet(pbmc_S1, pattern = "^MT-")
+pbmc_S2[["percent.mt"]] <- PercentageFeatureSet(pbmc_S2, pattern = "^MT-")
+pbmc_S3[["percent.mt"]] <- PercentageFeatureSet(pbmc_S3, pattern = "^MT-")
+pbmc_S4[["percent.mt"]] <- PercentageFeatureSet(pbmc_S4, pattern = "^MT-")
+
+pbmc_F1[["percent.mt"]] <- PercentageFeatureSet(pbmc_F1, pattern = "^MT-")
+pbmc_F2[["percent.mt"]] <- PercentageFeatureSet(pbmc_F2, pattern = "^MT-")
+
+pbmc_K1[["percent.mt"]] <- PercentageFeatureSet(pbmc_K1, pattern = "^MT-")
+pbmc_K2[["percent.mt"]] <- PercentageFeatureSet(pbmc_K2, pattern = "^MT-")
+pbmc_K3[["percent.mt"]] <- PercentageFeatureSet(pbmc_K3, pattern = "^MT-")
+pbmc_K4[["percent.mt"]] <- PercentageFeatureSet(pbmc_K4, pattern = "^MT-")
+pbmc_K5[["percent.mt"]] <- PercentageFeatureSet(pbmc_K5, pattern = "^MT-")
+pbmc_K6[["percent.mt"]] <- PercentageFeatureSet(pbmc_K6, pattern = "^MT-")
+
+list_pbmc <- list(
+pbmc_N1,
+pbmc_S1,pbmc_S2,pbmc_S3,pbmc_S4,
+pbmc_F1,pbmc_F2,
+pbmc_K1,pbmc_K2,pbmc_K3,pbmc_K4,pbmc_K5,pbmc_K6)
+
+list_pbmc <- lapply(X = list_pbmc, FUN = function(x) {
+   x <- subset(x, subset = nFeature_RNA > 200 & 
+                        nFeature_RNA < 7500 & 
+                        percent.mt < 30 &
+                        nCount_RNA > 500)
+    })
+ 
+VlnPlot(list_pbmc[[7]], 
+        features = c("nFeature_RNA", 
+                     "nCount_RNA", 
+                     "percent.mt"), 
+        ncol = 3)
+
+change_2 <- t(data.frame(
+dim(list_pbmc[[1]]),
+dim(list_pbmc[[2]]),
+dim(list_pbmc[[3]]),
+dim(list_pbmc[[4]]),
+dim(list_pbmc[[5]]),
+dim(list_pbmc[[6]]),
+dim(list_pbmc[[7]]),
+dim(list_pbmc[[8]]),
+dim(list_pbmc[[9]]),
+dim(list_pbmc[[10]]),
+dim(list_pbmc[[11]]),
+dim(list_pbmc[[12]]),
+dim(list_pbmc[[13]])
+            ))
+
+change<- cbind(change_1,change_2)
+```
+
+```{r}
+library(decontX)
+list_decontX <- lapply(X = list_pbmc, FUN = function(x){
+counts <- x@assays$RNA@counts
+decontX_results <- decontX(counts) 
+})
+length(list_pbmc)
+
+list_pbmc[[1]]$Contamination<- list_decontX[[1]]$contamination
+list_pbmc[[2]]$Contamination<- list_decontX[[2]]$contamination
+list_pbmc[[3]]$Contamination<- list_decontX[[3]]$contamination
+list_pbmc[[4]]$Contamination<- list_decontX[[4]]$contamination
+list_pbmc[[5]]$Contamination<- list_decontX[[5]]$contamination
+list_pbmc[[6]]$Contamination<- list_decontX[[6]]$contamination
+list_pbmc[[7]]$Contamination<- list_decontX[[7]]$contamination
+list_pbmc[[8]]$Contamination<- list_decontX[[8]]$contamination
+list_pbmc[[9]]$Contamination<- list_decontX[[9]]$contamination
+list_pbmc[[10]]$Contamination<- list_decontX[[10]]$contamination
+list_pbmc[[11]]$Contamination<- list_decontX[[11]]$contamination
+list_pbmc[[12]]$Contamination<- list_decontX[[12]]$contamination
+list_pbmc[[13]]$Contamination<- list_decontX[[13]]$contamination
+
+list_pbmc <- lapply(X = list_pbmc, FUN = function(x){
+x = x[,x$Contamination < 0.2]
+})
+```
+
+```{r}
+
+list_pbmc <- lapply(X = list_pbmc, FUN = function(x) {
+    x <- SCTransform(x)
+    x <- RunPCA(x, verbose = F)
+    ElbowPlot(x)
+    pc.num=1:20
+    x <- RunUMAP(x, dims=pc.num)
+    x <- FindNeighbors(x, dims = pc.num) %>% FindClusters(resolution = 0.4)
+    }) 
+
+save(list_pbmc, file ="SAVE/list_pbmc_SCT.RData")
+```
+
+#### DoubletFinder
+```{r}
+load(file = "SAVE/list_pbmc_SCT.RData")
+
+list_pbmc <- lapply(X = list_pbmc, FUN = function(x) {
+
+pc.num=1:20
+sweep.res.list <- paramSweep_v3(x, PCs = pc.num, sct = T)
+sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)  
+bcmvn <- find.pK(sweep.stats)
+
+pK_bcmvn <- bcmvn$pK[which.max(bcmvn$BCmetric)] %>% as.character() %>% as.numeric()
+
+
+DoubletRate = ncol(x)*8*1e-6
+
+homotypic.prop <- modelHomotypic(x$seurat_clusters)   
+
+nExp_poi <- round(DoubletRate*ncol(x)) 
+
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+
+x <- doubletFinder_v3(x, PCs = pc.num, pN = 0.25, pK = pK_bcmvn, 
+                         nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
+
+DF.name = colnames(x@meta.data)[grepl("DF.classifications",colnames(x@meta.data))]
+
+p5.dimplot=cowplot::plot_grid(ncol = 2, DimPlot(x, group.by = "orig.ident") + NoAxes(), 
+    DimPlot(x, group.by = DF.name) + NoAxes())
+p5.dimplot
+
+p5.vlnplot=VlnPlot(x, features = "nFeature_RNA", group.by = DF.name, pt.size = 0.1)
+p5.vlnplot
+
+x = x[, x@meta.data[, DF.name] == "Singlet"]
+
+})
+
+save(list_pbmc, file ="SAVE/list_pbmc.RData")
+```
+
+```{r}
+
+change_3 <- t(data.frame(
+dim(list_pbmc[[1]]),
+dim(list_pbmc[[2]]),
+dim(list_pbmc[[3]]),
+dim(list_pbmc[[4]]),
+dim(list_pbmc[[5]]),
+dim(list_pbmc[[6]]),
+dim(list_pbmc[[7]]),
+dim(list_pbmc[[8]]),
+dim(list_pbmc[[9]]),
+dim(list_pbmc[[10]]),
+dim(list_pbmc[[11]]),
+dim(list_pbmc[[12]]),
+dim(list_pbmc[[13]])
+            ))
+
+change <- cbind(change_1,change_2,change_3)
+colnames(change) <- c("UMI1","CELL1","UMI2","CELL2","UMI3","CELL3")
+
+write.csv(change,file = "output/change.csv")
+```
