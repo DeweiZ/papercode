@@ -1,0 +1,512 @@
+---
+title: "GSE84756"
+author: "zdw"
+date: "2023-03-20"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F,fig.width = 10)
+options(stringsAsFactors = F)
+```
+#加载包
+```{r}
+library(GEOquery)
+library(stringr)
+library("illuminaHumanv4.db")
+library(tidyr)
+library(tibble)
+library(dplyr)
+library(limma)
+library(FactoMineR)
+library(factoextra) 
+library(pheatmap)
+library(ggplot2)
+library(paletteer)
+library(ggpubr)
+library(ggrepel) 
+library("KEGGREST")
+```
+
+#数据整理
+
+```{r}
+#数据下载 光动力治疗前后
+rm(list = ls())
+gse_number = "GSE84756"
+eSet <- getGEO(gse_number, 
+               destdir = '.', 
+               getGPL = F)
+eSet = eSet[[1]]
+#(1)提取表达矩阵exp
+exp <- exprs(eSet)
+exp[1:4,1:4]
+boxplot(exp)
+#(2)提取临床信息、删除DT,LC50组
+pd <- pData(eSet)
+pd <- pd[!grepl("DT|LC90", pd$`treatment:ch1`) & grepl("HUVEC", pd$`cell line:ch1`), ]
+#(3)调整pd的行名顺序与exp列名完全一致
+p = identical(rownames(pd),colnames(exp));p
+if(!p) exp = exp[,match(rownames(pd),colnames(exp))]
+#(4)提取芯片平台编号
+gpl_number <- eSet@annotation
+save(gse_number,pd,exp,gpl_number,file = "stepout/step1output.Rdata")
+```
+#2
+```{r}
+# Group(实验分组)和ids(探针注释)
+rm(list = ls())  
+load(file = "stepout/step1output.Rdata")
+# 1.Group----
+# 匹配关键词，自行分类
+Group=ifelse(str_detect(pd$"treatment:ch1","Control"),"Control","PDT")
+#设置参考水平，指定levels，对照组在前，处理组在后
+Group = factor(Group,levels = c("Control","PDT"))
+#探针注释
+# illumina包注释
+ls('package:illuminaHumanv4.db')
+ids <- toTable(illuminaHumanv4SYMBOL)
+save(exp,Group,ids,gse_number,file = "stepout/step2output.Rdata")
+```
+#3
+```{r}
+rm(list = ls()) 
+load(file = 'stepout/step1output.Rdata')
+load(file = 'stepout/step2output.Rdata')
+# 每次都要检测数据
+dat <- exp
+dat[1:4,1:4]
+table(Group)
+g=Group
+g=relevel(g,'Control')
+design=model.matrix(~g)
+#影响表达量的批次
+batch=pd$`treatment:ch1`
+batch=factor(batch)
+batch
+## 使用 limma 的 removeBatchEffect 函数
+dat[1:4,1:4]
+ex_b_limma <- removeBatchEffect(dat,
+                                batch = batch,
+                                design = design)
+#ex_b_limma 去除批次效应后的矩阵                               
+dim(ex_b_limma)
+ex_b_limma[1:4,1:4]
+
+#PCA图
+dat=as.data.frame(t(ex_b_limma))
+
+dat.pca <- PCA(dat, graph = FALSE)
+pca_plot <- fviz_pca_ind(dat.pca,
+                         geom.ind = "point", # show points only (nbut not "text")
+                         col.ind = Group, # color by groups
+                         palette = c("#9eaad1", "#f59790"),
+                         addEllipses = TRUE, # Concentration ellipses
+                         legend.title = "Groups"
+)
+pca_plot
+ggsave(plot = pca_plot,filename = paste0(gse_number,"_PCA.png"),path="stepout/")
+```
+
+#4差异分析、获取ENTREZID
+```{r}
+rm(list = ls()) 
+load(file = "stepout/step2output.Rdata")
+#差异分析，用limma包来做
+#需要表达矩阵和Group，不需要改
+design=model.matrix(~Group)
+fit=lmFit(exp,design)
+fit=eBayes(fit)
+deg=topTable(fit,coef=2,number = Inf)
+
+#为deg数据框添加几列
+#1.加probe_id列，把行名变成一列
+deg <- mutate(deg,probe_id=rownames(deg))
+head(deg)
+#2.加上探针注释
+ids = ids[!duplicated(ids$symbol),]
+deg <- inner_join(deg,ids,by="probe_id")
+head(deg)
+nrow(deg)
+
+#3.加change列,标记上下调基因
+logFC_t=1
+P.Value_t = 0.05
+k1 = (deg$adj.P.Val < P.Value_t)&(deg$logFC < -logFC_t)
+k2 = (deg$adj.P.Val < P.Value_t)&(deg$logFC > logFC_t)
+deg <- mutate(deg,change = ifelse(k1,"down",ifelse(k2,"up","stable")))
+table(deg$change)
+
+#4.加ENTREZID列，用于富集分析（symbol转entrezid，然后inner_join）
+s2e <- toTable(illuminaHumanv4ENTREZID)
+dim(deg)
+deg <- inner_join(deg,s2e,by=c("probe_id"="probe_id"))
+dim(deg)
+length(unique(deg$symbol))
+save(Group,deg,logFC_t,P.Value_t,gse_number,file = "stepout/step4output.Rdata")
+```
+
+#5. 差异基因分析
+
+```{r}
+#差异基因火山图
+p <- ggplot(data = deg,
+            aes(x = logFC,
+                y = -log10(P.Value))) +
+  geom_point(alpha = 0.7, size = 1.5,
+             aes(color = change)) +
+  scale_color_manual(values = c("#9eaad1", "#CCCCCC", "#f59790")) +
+  geom_vline(xintercept = c(-logFC_t, logFC_t),
+             linetype = "dashed", color = "gray50", size = 0.5) +
+  geom_hline(yintercept = -log10(P.Value_t),
+             linetype = "dashed", color = "gray50", size = 0.5) +
+  geom_text_repel(
+    data          = subset(deg, symbol == "DUSP1"),
+    aes(label     = symbol),
+    color         = "black",
+    size          = 5,
+    fontface      = "italic",
+    box.padding   = 0.8,
+    point.padding = 0.5,
+    segment.color = "black",
+    arrow         = arrow(length = unit(0.015, "npc"))
+  ) +
+  theme_classic() +
+  labs(
+    title = "Volcano Plot",
+    x     = "Log2 Fold Change",
+    y     = "-Log10(P-value)"
+  ) +
+  theme(
+    plot.title     = element_text(hjust = 0.5, face = "bold", size = 16),
+    legend.position = "right",
+    legend.title   = element_blank()
+  )
+
+print(p)             # 连接线的粗细
+
+```
+
+# 富集
+
+```{r}
+# =============================================================================
+# Figure 2I: PDT 响应基因 GO/KEGG 富集气泡图
+# =============================================================================
+
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+# ── 1. 载入数据 ───────────────────────────────────────────────────────────────
+load("stepout/step4output.Rdata")   # deg, logFC_t, P.Value_t, Group
+
+# ── 2. 提取显著差异基因的 Entrez ID ───────────────────────────────────────────
+# deg 中已有 entrezid 列（step4 通过 illuminaHumanv4ENTREZID 注释）
+sig_entrez <- deg %>%
+  filter(change %in% c("up", "down")) %>%
+  pull(gene_id) %>%
+  unique() %>%
+  na.omit() %>%
+  as.character()
+
+cat("PDT 响应显著差异基因数:", length(sig_entrez), "\n")
+
+# ── 3. GO 富集分析 ────────────────────────────────────────────────────────────
+go_res <- enrichGO(
+  gene          = sig_entrez,
+  OrgDb         = org.Hs.eg.db,
+  ont           = "ALL",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05,
+  readable      = TRUE
+)
+
+# ── 4. KEGG 富集分析 ──────────────────────────────────────────────────────────
+kegg_res <- enrichKEGG(
+  gene          = sig_entrez,
+  organism      = "hsa",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05
+)
+
+# ── 5. 关键词筛选目标通路 ─────────────────────────────────────────────────────
+keywords <- c(
+  "oxidative stress",
+  "reactive oxygen species",
+  "MAPK",
+  "apoptot",
+  "angiogenesis", "blood vessel",
+  "migrat",
+  "extracellular matrix",
+  "TGF|transforming growth factor",
+  "wound healing"
+)
+pattern <- paste(keywords, collapse = "|")
+
+filter_terms <- function(df, src_label) {
+  df %>%
+    as.data.frame() %>%
+    filter(str_detect(tolower(Description), tolower(pattern))) %>%
+    mutate(Source = src_label)
+}
+
+go_sel   <- filter_terms(go_res,   "GO")
+kegg_sel <- filter_terms(kegg_res, "KEGG")
+
+cat("筛选到 GO 条目:", nrow(go_sel), "| KEGG 条目:", nrow(kegg_sel), "\n")
+
+# ── 6. 合并并整理绘图数据 ─────────────────────────────────────────────────────
+combined <- bind_rows(
+  go_sel   %>% arrange(p.adjust) %>% head(15),
+  kegg_sel %>% arrange(p.adjust) %>% head(8)
+) %>%
+  mutate(
+    logP         = -log10(p.adjust),
+    GeneRatioNum = sapply(GeneRatio, function(x) {
+      v <- as.numeric(unlist(strsplit(x, "/")))
+      v[1] / v[2]
+    }),
+    Description  = str_wrap(Description, width = 40),
+    # 保证 y 轴按 Source 分组后再按显著性排序
+    Description  = factor(Description,
+                          levels = rev(unique(Description)))
+  )
+
+# ── 7. 绘制气泡图 ─────────────────────────────────────────────────────────────
+p_2I <- ggplot(combined,
+               aes(x     = GeneRatioNum,
+                   y     = Description,
+                   size  = Count,
+                   color = logP)) +
+  geom_point(alpha = 0.88) +
+  scale_color_gradient(
+    low  = "#9eaad1",
+    high = "#f59790",
+    name = "-log10(p.adjust)"
+  ) +
+  scale_size_continuous(
+    range = c(3, 10),
+    name  = "Gene Count"
+  ) +
+  facet_grid(Source ~ ., scales = "free_y", space = "free_y") +
+  theme_bw() +
+  labs(
+    title = "GO/KEGG Enrichment of PDT Response Genes",
+    x     = "Gene Ratio",
+    y     = NULL
+  ) +
+  theme(
+    plot.title         = element_text(hjust = 0.5, face = "bold", size = 14),
+    axis.text.y        = element_text(size = 9,  color = "black"),
+    axis.text.x        = element_text(size = 10, color = "black"),
+    strip.text         = element_text(face = "bold", size = 11),
+    strip.background   = element_rect(fill = "gray92", color = "gray70"),
+    legend.position    = "right",
+    panel.grid.major.y = element_line(linetype = "dashed", color = "gray88")
+  )
+
+print(p_2I)
+
+# ── 8. 保存 ───────────────────────────────────────────────────────────────────
+ggsave("output/Fig2I_PDT_GO_KEGG_bubble.pdf",
+       plot = p_2I, width = 9, height = 8)
+ggsave("output/Fig2I_PDT_GO_KEGG_bubble.png",
+       plot = p_2I, width = 9, height = 8, dpi = 300)
+```
+
+```{r}
+# =============================================================================
+# Figure 2J: GSEA 富集曲线图（Post-PDT vs Pre-PDT）
+# 展示 4 条通路：oxidative stress / MAPK / glucocorticoid / TGF-beta & ECM
+# =============================================================================
+
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)   # gseaplot2() 所在包
+library(patchwork)
+
+# ── 1. 载入数据 ───────────────────────────────────────────────────────────────
+load("stepout/step4output.Rdata")   # deg, Group
+
+# ── 2. 构建 GSEA 输入：按 logFC 降序排列的命名向量 ────────────────────────────
+# 去除重复 symbol，保留 |logFC| 最大的探针
+gene_rank <- deg %>%
+  filter(!is.na(symbol) & !is.na(gene_id)) %>%
+  group_by(gene_id) %>%
+  slice_max(abs(logFC), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  arrange(desc(logFC))
+
+ranked_vec <- setNames(gene_rank$logFC, gene_rank$gene_id)
+cat("排序基因数:", length(ranked_vec), "\n")
+
+# ── 3. 从 MSigDB 本地定义 4 条目标基因集（Hallmark / C2 经典集）──────────────
+# 使用 clusterProfiler::GSEA 可直接用 msigdbr 包获取，此处用手动定义保证可复现
+# 若已安装 msigdbr，可替换为：
+#   library(msigdbr)
+#   h_sets <- msigdbr(species="Homo sapiens", category="H") 等
+
+# ── 推荐方式：msigdbr 自动获取（优先使用） ────────────────────────────────────
+if (requireNamespace("msigdbr", quietly = TRUE)) {
+  library(msigdbr)
+
+  # Hallmark 基因集
+  h_df <- msigdbr(species = "Homo sapiens", category = "H")
+  # C2 KEGG / Reactome
+  c2_df <- msigdbr(species = "Homo sapiens", category = "C2")
+
+  make_gs <- function(df, pattern) {
+    df %>%
+      filter(str_detect(gs_name, pattern)) %>%
+      select(gs_name, entrez_gene) %>%
+      mutate(entrez_gene = as.character(entrez_gene))
+  }
+
+  gs_target <- bind_rows(
+    make_gs(h_df,  "HALLMARK_OXIDATIVE_PHOSPHORYLATION|HALLMARK_REACTIVE_OXYGEN"),
+    make_gs(h_df,  "HALLMARK_TNFA_SIGNALING|HALLMARK_IL6_JAK_STAT3"),  # 若无 MAPK Hallmark 用此替代
+    make_gs(h_df,  "HALLMARK_GLUCOCORTICOID"),
+    make_gs(h_df,  "HALLMARK_TGF_BETA_SIGNALING|HALLMARK_EPITHELIAL_MESENCHYMAL"),
+    make_gs(c2_df, "KEGG_MAPK_SIGNALING_PATHWAY"),
+    make_gs(c2_df, "KEGG_ECM_RECEPTOR_INTERACTION"),
+    make_gs(c2_df, "REACTOME_CELLULAR_RESPONSE_TO_STRESS|REACTOME_RESPONSE_TO_REACTIVE_OXYGEN")
+  )
+
+  gs_list <- split(gs_target$entrez_gene, gs_target$gs_name)
+
+} else {
+  # ── 备用方式：手动定义精简版基因集（基于文献常用基因） ────────────────────
+  message("未检测到 msigdbr 包，使用手动定义基因集。建议安装：install.packages('msigdbr')")
+
+  # 将基因符号转为 Entrez ID
+  sym2entrez <- function(symbols) {
+    res <- bitr(symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+    res$ENTREZID
+  }
+
+  gs_list <- list(
+    "Oxidative_Stress_Response" = sym2entrez(c(
+      "HMOX1","NQO1","TXNRD1","GPX1","SOD1","SOD2","CAT","PRDX1",
+      "GCLC","GCLM","NFE2L2","KEAP1","DUSP1","SQSTM1","SESN2",
+      "SRXN1","GLRX","TXN","GSR","G6PD"
+    )),
+    "MAPK_Signaling" = sym2entrez(c(
+      "MAPK1","MAPK3","MAPK8","MAPK14","MAP2K1","MAP2K4",
+      "HRAS","KRAS","BRAF","RAF1","MAP3K1","DUSP1","DUSP6",
+      "ELK1","JUN","FOS","ATF2","MKK3","MKK6","MKK7"
+    )),
+    "Glucocorticoid_Response" = sym2entrez(c(
+      "DUSP1","FKBP5","TSC22D3","GILZ","KLF9","SGK1","ZBTB16",
+      "NFKBIA","TNFAIP3","PER1","CDKN1C","ERRFI1","ANGPTL4",
+      "PDK4","LGALS1","DDIT4","CEBPD","BCL6","IRS2","PCK1"
+    )),
+    "TGFbeta_ECM" = sym2entrez(c(
+      "TGFB1","TGFB2","TGFBR1","TGFBR2","SMAD2","SMAD3","SMAD4",
+      "COL1A1","COL1A2","COL3A1","FN1","VIM","ACTA2","SERPINE1",
+      "MMP2","MMP9","TIMP1","LOXL2","ITGA5","ITGB1","CDH2","SNAI1"
+    ))
+  )
+  # 统一转为字符型
+  gs_list <- lapply(gs_list, as.character)
+}
+
+# ── 4. 运行 GSEA ──────────────────────────────────────────────────────────────
+set.seed(42)
+gsea_res <- GSEA(
+  geneList     = ranked_vec,
+  TERM2GENE    = bind_rows(lapply(names(gs_list), function(n)
+    data.frame(term = n, gene = gs_list[[n]]))),
+  pvalueCutoff = 1,        # 设为 1 保证 4 条通路都能出图（不因 p 值过滤掉）
+  minGSSize    = 5,
+  maxGSSize    = 500,
+  eps          = 0,
+  pAdjustMethod = "BH",
+  verbose      = FALSE
+)
+
+print(gsea_res@result[, c("ID", "NES", "pvalue", "p.adjust")])
+
+# ── 5. 配色方案（与全文一致） ─────────────────────────────────────────────────
+# =============================================================================
+# Figure 2J 出图部分（替换原来的第 5 步之后的所有代码）
+# GSEA 结果 gsea_res 和 term_ids、gsea_colors 已在上方生成
+# =============================================================================
+
+
+
+term_ids    <- gsea_res@result$ID
+gsea_colors <- c("#f59790", "#9eaad1", "#dacfe5", "#cde2e8")
+
+cat("将绘制以下通路:\n")
+print(term_ids)
+
+# ── 方案：用 gridExtra::grid.arrange 直接拼接 gglist 对象 ────────────────────
+# gseaplot2 返回 gglist，grid.arrange 可以接受
+
+plot_list <- lapply(seq_along(term_ids), function(i) {
+  gseaplot2(
+    gsea_res,
+    geneSetID    = term_ids[i],
+    title        = str_replace_all(term_ids[i], "_", " "),
+    color        = gsea_colors[(i - 1) %% length(gsea_colors) + 1],
+    base_size    = 11,
+    rel_heights  = c(1.5, 0.4, 0.8),
+    pvalue_table = FALSE
+  )
+})
+
+# 逐条单独保存，完全不需要拼图转换
+pdf("output/Fig2J_GSEA_curves.pdf", width = 6, height = 5)
+for (i in seq_along(term_ids)) {
+  p <- gseaplot2(
+    gsea_res,
+    geneSetID    = term_ids[i],
+    title        = str_replace_all(term_ids[i], "_", " "),
+    color        = gsea_colors[(i - 1) %% length(gsea_colors) + 1],
+    base_size    = 12,
+    rel_heights  = c(1.5, 0.4, 0.8),
+    pvalue_table = FALSE
+  )
+  print(p)   # 每条通路输出到 PDF 的一页
+}
+dev.off()
+
+# 同时逐条保存 PNG
+for (i in seq_along(term_ids)) {
+  p <- gseaplot2(
+    gsea_res,
+    geneSetID    = term_ids[i],
+    title        = str_replace_all(term_ids[i], "_", " "),
+    color        = gsea_colors[(i - 1) %% length(gsea_colors) + 1],
+    base_size    = 12,
+    rel_heights  = c(1.5, 0.4, 0.8),
+    pvalue_table = FALSE
+  )
+  ggsave(
+    paste0("output/Fig2J_", term_ids[i], ".png"),
+    plot = p, width = 6, height = 5, dpi = 300
+  )
+}
+cat("全部 GSEA 图已保存\n")
+
+cat("Fig2J 保存完成！\n")
+```
+
+
+
+
+
+
+
+
+

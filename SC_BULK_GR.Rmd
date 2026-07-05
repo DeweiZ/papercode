@@ -1,0 +1,396 @@
+---
+title: "SC_BULK_GR"
+author: "zdw"
+date: "2026-06-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# ============================================================
+# Figure 2D: 三组基因交集 Venn 图
+# 1. 瘢痕疙瘩内皮差异基因 (scRNA)
+# 2. 糖皮质激素/GR 反应基因
+# 3. PDT 响应基因 (Bulk GSE84756)
+# ============================================================
+
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(VennDiagram)
+library(ggVennDiagram)
+
+load("stepout/step4output.Rdata")             # Bulk DEG: deg
+sc_deg <- readRDS("stepout/SKmarkers_S_vs_K.rds")  # scRNA DEG
+
+# =========================================================================
+# 1. 准备三组基因
+# =========================================================================
+
+# --- 组1：瘢痕疙瘩内皮差异基因 (scRNA S vs K) ---
+group_sc <- sc_deg %>%
+  mutate(gene = rownames(.)) %>%
+  filter(p_val_adj < 0.05, abs(avg_log2FC) > 1) %>%
+  pull(gene) %>%
+  unique()
+
+# --- 组2：GR 经典下游 / 糖皮质激素反应基因 ---
+# 来源：文献公认的 GR 经典靶基因列表（可根据实际数据库替换）
+gr_genes <- c(
+  "DUSP1", "GILZ", "TSC22D3", "FKBP5", "CDKN1C", "CXCL8",
+  "IL6", "TNF", "ICAM1", "VCAM1", "MKP1", "SGK1", "PDK4",
+  "ANGPTL4", "KLF15", "PER1", "ZFP36L1", "NFKBIA", "IER3",
+  "ERRFI1", "LPIN1", "PCK1", "G6PC", "PEPCK", "TAT",
+  "SLCO2B1", "ZBTB16", "BCL6", "CRISPLD2", "ADORA2B"
+)
+
+# --- 组3：PDT 响应基因 (Bulk GSE84756) ---
+group_pdt <- deg %>%
+  filter(change %in% c("up", "down")) %>%
+  pull(symbol) %>%
+  unique() %>%
+  na.omit()
+
+cat("scRNA 内皮差异基因数:", length(group_sc), "\n")
+cat("GR 反应基因数:",        length(gr_genes),  "\n")
+cat("PDT 响应基因数:",       length(group_pdt), "\n")
+
+# =========================================================================
+# 2. 计算交集，确认 DUSP1 位置
+# =========================================================================
+
+overlap_3 <- Reduce(intersect, list(group_sc, gr_genes, group_pdt))
+cat("三组共同交集基因:", paste(overlap_3, collapse = ", "), "\n")
+cat("DUSP1 是否在三组交集中:", "DUSP1" %in% overlap_3, "\n")
+
+# 保存交集结果
+write.csv(data.frame(Gene = overlap_3), "output/Fig2D_triple_overlap.csv", row.names = FALSE)
+
+# =========================================================================
+# 3-A. 经典三圈 Venn 图（VennDiagram 包，保存为 TIFF）
+# =========================================================================
+
+venn_list <- list(
+  "scRNA\nEndo DEGs"  = group_sc,
+  "GR Response\nGenes" = gr_genes,
+  "PDT Response\nGenes" = group_pdt
+)
+
+venn.diagram(
+  x         = venn_list,
+  filename  = "output/Fig2D_Venn_triple.tiff",
+  imagetype = "tiff",
+  resolution = 300,
+  # 三个圆的边框颜色
+  col       = c("#9eaad1", "#f5c518", "#f59790"),
+  # 三个圆的填充颜色
+  fill      = c("#9eaad1", "#f5c518", "#f59790"),
+  alpha     = 0.50,
+  # 分组标签
+  cat.col   = c("#5a6fa0", "#b89010", "#c0392b"),
+  cat.cex   = 0.9,
+  cat.fontface = "bold",
+  cat.dist  = c(0.06, 0.06, 0.04),
+  # 数字大小
+  cex       = 0.85,
+  fontface  = "bold",
+  margin    = 0.08,
+  scaled    = FALSE,
+  disable.logging = TRUE
+)
+
+cat("经典 Venn 图已保存至 output/Fig2D_Venn_triple.tiff\n")
+
+# =========================================================================
+# 3-B. ggVennDiagram 版本（可导出为 PDF/PNG，更美观）
+# =========================================================================
+
+library(ggVennDiagram)
+
+p_venn <- ggVennDiagram(
+  x          = venn_list,
+  label      = "count",
+  label_alpha = 0,
+  edge_size  = 0.8
+) +
+  # 填充色
+  scale_fill_gradient(low = "#f7f7f7", high = "#f59790") +
+  # 边框色
+  scale_color_manual(values = c("#9eaad1", "#d4a017", "#f59790")) +
+  # 标注三组交集中的 DUSP1
+  annotate(
+    "text",
+    x = 0, y = 0,                    # 位置在图中心附近（三圆交集处）
+    label = "DUSP1",
+    fontface = "bold.italic",
+    size  = 5,
+    color = "#c0392b"
+  ) +
+  labs(
+    title   = "Intersection of scRNA Endo DEGs,\nGR Response Genes & PDT Response Genes",
+    caption = paste0(
+      "图2D. 瘢痕疙瘩相关内皮细胞差异基因、糖皮质激素/GR 反应相关基因和 PDT 响应基因的交集分析。\n",
+      "Venn 图显示 DUSP1 是三类基因集共同包含的候选分子。"
+    )
+  ) +
+  theme_void(base_size = 12) +
+  theme(
+    plot.title   = element_text(hjust = 0.5, face = "bold", size = 13),
+    plot.caption = element_text(hjust = 0, size = 9, color = "gray30"),
+    legend.position = "none"
+  )
+
+print(p_venn)
+
+ggsave("output/Fig2D_Venn_triple.pdf", p_venn, width = 7, height = 6)
+ggsave("output/Fig2D_Venn_triple.png", p_venn, width = 7, height = 6, dpi = 300)
+
+# =========================================================================
+# 4. 输出各交集详情供核查
+# =========================================================================
+
+cat("\n--- 各两两交集 ---\n")
+cat("scRNA ∩ GR:", paste(intersect(group_sc, gr_genes), collapse = ", "), "\n")
+cat("scRNA ∩ PDT:", paste(intersect(group_sc, group_pdt), collapse = ", "), "\n")
+cat("GR ∩ PDT:", paste(intersect(gr_genes, group_pdt), collapse = ", "), "\n")
+cat("三组交集:", paste(overlap_3, collapse = ", "), "\n")
+```
+
+```{r}
+# =============================================================================
+# Figure 2E: DUSP1 高低表达分组的 GR Response Score（基于 GSE84756）
+# 方法：ssGSEA 计算 GR 经典靶基因集评分，按 DUSP1 中位数分组比较
+# =============================================================================
+
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(GSVA)        # ssGSEA，若未安装：BiocManager::install("GSVA")
+
+# ── 1. 载入数据 ──────────────────────────────────────────────────────────────
+load("stepout/step2output.Rdata")   # exp, Group, ids
+load("stepout/step4output.Rdata")   # deg
+
+# ── 2. 探针 → 基因符号（取每个基因唯一探针） ─────────────────────────────────
+ids_uniq <- ids[!duplicated(ids$symbol), ]
+exp_anno <- exp[rownames(exp) %in% ids_uniq$probe_id, ]
+rownames(exp_anno) <- ids_uniq$symbol[match(rownames(exp_anno), ids_uniq$probe_id)]
+
+# ── 3. 定义 GR 经典下游靶基因集 ──────────────────────────────────────────────
+# 参考文献常用的糖皮质激素受体（GR/NR3C1）转录靶基因
+gr_gene_set <- list(
+  GR_response = c(
+    "DUSP1", "GILZ", "TSC22D3", "FKBP5", "ZBTB16", "KLF9",
+    "CDKN1C", "SGK1", "ERRFI1", "NFKBIA", "TNFAIP3",
+    "PER1", "ANGPTL4", "PDK4", "LGALS1", "DDIT4", "CEBPD",
+    "IL6ST", "LIFR", "STAT3", "BCL6", "IRS2", "PCK1"
+  )
+)
+
+# 只保留在表达矩阵中实际存在的基因
+gr_gene_set$GR_response <- intersect(gr_gene_set$GR_response, rownames(exp_anno))
+cat("GR 靶基因集中实际可用基因数:", length(gr_gene_set$GR_response), "\n")
+
+# ── 4. ssGSEA 计算 GR response score ─────────────────────────────────────────
+# GSVA >= 1.50 用新接口；若报错请改用旧接口（见注释）
+gsva_param <- ssgseaParam(exprData = exp_anno, geneSets = gr_gene_set)
+gsva_res   <- gsva(gsva_param, verbose = FALSE)
+# 旧版写法：gsva_res <- gsva(exp_anno, gr_gene_set, method = "ssgsea", verbose = FALSE)
+
+gr_score <- as.numeric(gsva_res["GR_response", ])
+
+# ── 5. 按 DUSP1 表达量中位数分组 ─────────────────────────────────────────────
+dusp1_probes <- ids$probe_id[ids$symbol == "DUSP1"]
+dusp1_probes <- intersect(dusp1_probes, rownames(exp))
+dusp1_expr   <- colMeans(exp[dusp1_probes, , drop = FALSE])
+
+dusp1_group <- factor(
+  ifelse(dusp1_expr >= median(dusp1_expr), "DUSP1-High", "DUSP1-Low"),
+  levels = c("DUSP1-Low", "DUSP1-High")
+)
+
+# ── 6. 整合数据框 ─────────────────────────────────────────────────────────────
+plot_df <- data.frame(
+  GR_score    = gr_score,
+  DUSP1_group = dusp1_group,
+  PDT_group   = Group          # Control / PDT
+)
+cat("\n各分组样本数：\n"); print(table(plot_df$DUSP1_group, plot_df$PDT_group))
+
+# ── 7. 绘图 ──────────────────────────────────────────────────────────────────
+p_2E <- ggplot(plot_df, aes(x = DUSP1_group, y = GR_score, fill = DUSP1_group)) +
+  geom_boxplot(
+    width = 0.45, outlier.shape = NA, alpha = 0.8,
+    color = "black", linewidth = 0.5
+  ) +
+  geom_jitter(
+    aes(color = PDT_group),
+    width = 0.15, size = 2.5, alpha = 0.9
+  ) +
+  scale_fill_manual(values = c("DUSP1-Low" = "#9eaad1", "DUSP1-High" = "#f59790")) +
+  scale_color_manual(
+    values = c("Control" = "#4a6fa5", "PDT" = "#c0392b"),
+    name   = "PDT Status"
+  ) +
+  stat_compare_means(
+    comparisons = list(c("DUSP1-Low", "DUSP1-High")),
+    method      = "wilcox.test",
+    label       = "p.signif",
+    tip.length  = 0.01,
+    size        = 5
+  ) +
+  theme_classic() +
+  labs(
+    title = "GR Response Score: DUSP1-High vs DUSP1-Low",
+    x     = "DUSP1 Expression Group",
+    y     = "GR Response Score (ssGSEA)",
+    fill  = "DUSP1 Group"
+  ) +
+  theme(
+    plot.title      = element_text(hjust = 0.5, face = "bold", size = 14),
+    legend.position = "right",
+    axis.text       = element_text(color = "black", size = 11)
+  )
+
+print(p_2E)
+
+# ── 8. 保存 ──────────────────────────────────────────────────────────────────
+ggsave("output/Fig2E_GR_score_DUSP1_group.pdf", plot = p_2E, width = 5, height = 5)
+ggsave("output/Fig2E_GR_score_DUSP1_group.png", plot = p_2E, width = 5, height = 5, dpi = 300)
+
+```
+
+```{r}
+# =============================================================================
+# Figure 2F: DUSP1 表达与 PDT Response Score 的关系
+# 方法：从 GSE84756 差异分析结果中提取 PDT 响应基因集，
+#       ssGSEA 计算评分，双图：① 高低分组箱线图 ② 相关性散点图
+# =============================================================================
+
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(GSVA)
+library(patchwork)
+
+# ── 1. 载入数据 ───────────────────────────────────────────────────────────────
+load("stepout/step2output.Rdata")   # exp, Group, ids
+load("stepout/step4output.Rdata")   # deg, logFC_t, P.Value_t
+
+# ── 2. 探针 → 基因符号（唯一映射） ───────────────────────────────────────────
+ids_uniq <- ids[!duplicated(ids$symbol), ]
+exp_anno <- exp[rownames(exp) %in% ids_uniq$probe_id, ]
+rownames(exp_anno) <- ids_uniq$symbol[match(rownames(exp_anno), ids_uniq$probe_id)]
+
+# ── 3. 从差异分析结果构建 PDT 响应基因集 ──────────────────────────────────────
+# 使用 adj.P.Val < 0.05 & |logFC| > 1 的显著差异基因
+pdt_up   <- deg %>% filter(change == "up")   %>% pull(symbol) %>% unique() %>% na.omit()
+pdt_down <- deg %>% filter(change == "down") %>% pull(symbol) %>% unique() %>% na.omit()
+
+gene_sets <- list(
+  PDT_Response = intersect(c(pdt_up, pdt_down), rownames(exp_anno))
+)
+cat("PDT 响应基因集大小 — 上调:", length(intersect(pdt_up, rownames(exp_anno))),
+    "| 下调:", length(intersect(pdt_down, rownames(exp_anno))),
+    "| 总计:", length(gene_sets$PDT_Response), "\n")
+
+# ── 4. ssGSEA 计算 PDT response score ────────────────────────────────────────
+# GSVA >= 1.50 新接口
+gsva_param <- ssgseaParam(exprData = exp_anno, geneSets = gene_sets)
+gsva_res   <- gsva(gsva_param, verbose = FALSE)
+# 旧版写法：gsva_res <- gsva(exp_anno, gene_sets, method = "ssgsea", verbose = FALSE)
+
+pdt_score <- as.numeric(gsva_res["PDT_Response", ])
+
+# ── 5. 提取 DUSP1 表达量并按中位数分组 ───────────────────────────────────────
+dusp1_probes <- intersect(ids$probe_id[ids$symbol == "DUSP1"], rownames(exp))
+dusp1_expr   <- colMeans(exp[dusp1_probes, , drop = FALSE])
+
+dusp1_group <- factor(
+  ifelse(dusp1_expr >= median(dusp1_expr), "DUSP1-High", "DUSP1-Low"),
+  levels = c("DUSP1-Low", "DUSP1-High")
+)
+
+# ── 6. 整合数据框 ─────────────────────────────────────────────────────────────
+plot_df <- data.frame(
+  DUSP1_expr  = as.numeric(dusp1_expr),
+  DUSP1_group = dusp1_group,
+  PDT_score   = pdt_score,
+  PDT_group   = Group
+)
+
+# ── 7A. 箱线图：DUSP1-High vs DUSP1-Low ──────────────────────────────────────
+p_box <- ggplot(plot_df, aes(x = DUSP1_group, y = PDT_score, fill = DUSP1_group)) +
+  geom_boxplot(
+    width = 0.45, outlier.shape = NA, alpha = 0.8,
+    color = "black", linewidth = 0.5
+  ) +
+  geom_jitter(
+    aes(color = PDT_group),
+    width = 0.15, size = 2.5, alpha = 0.9
+  ) +
+  scale_fill_manual(values = c("DUSP1-Low" = "#9eaad1", "DUSP1-High" = "#f59790")) +
+  scale_color_manual(values = c("Control" = "#4a6fa5", "PDT" = "#c0392b"), name = "PDT Status") +
+  stat_compare_means(
+    comparisons = list(c("DUSP1-Low", "DUSP1-High")),
+    method = "wilcox.test", label = "p.signif", tip.length = 0.01, size = 5
+  ) +
+  theme_classic() +
+  labs(
+    title = "PDT Response Score:\nDUSP1-High vs DUSP1-Low",
+    x = "DUSP1 Expression Group",
+    y = "PDT Response Score (ssGSEA)",
+    fill = "DUSP1 Group"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 13),
+    legend.position = "right",
+    axis.text = element_text(color = "black", size = 11)
+  )
+
+# ── 7B. 相关性散点图：DUSP1 expression vs PDT response score ─────────────────
+p_cor <- ggplot(plot_df, aes(x = DUSP1_expr, y = PDT_score)) +
+  geom_point(aes(color = PDT_group), size = 2.8, alpha = 0.85) +
+  geom_smooth(
+    method = "lm", se = TRUE,
+    color = "black", linewidth = 0.8, fill = "gray85"
+  ) +
+  stat_cor(
+    method = "spearman",
+    label.x.npc = 0.05, label.y.npc = 0.95,
+    size = 4.5, color = "black"
+  ) +
+  scale_color_manual(
+    values = c("Control" = "#9eaad1", "PDT" = "#f59790"),
+    name = "PDT Status"
+  ) +
+  theme_classic() +
+  labs(
+    title = "DUSP1 Expression vs PDT Response Score",
+    x = "DUSP1 Expression Level",
+    y = "PDT Response Score (ssGSEA)"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 13),
+    legend.position = "right",
+    axis.text = element_text(color = "black", size = 11)
+  )
+
+# ── 8. 拼图并显示 ─────────────────────────────────────────────────────────────
+p_2F <- p_box + p_cor + plot_layout(ncol = 2)
+print(p_2F)
+
+# ── 9. 保存 ───────────────────────────────────────────────────────────────────
+ggsave("output/Fig2F_PDT_score_boxplot.pdf",     plot = p_box, width = 5, height = 5)
+ggsave("output/Fig2F_PDT_score_boxplot.png",     plot = p_box, width = 5, height = 5, dpi = 300)
+ggsave("output/Fig2F_PDT_score_correlation.pdf", plot = p_cor, width = 5, height = 5)
+ggsave("output/Fig2F_PDT_score_correlation.png", plot = p_cor, width = 5, height = 5, dpi = 300)
+ggsave("output/Fig2F_combined.pdf",              plot = p_2F,  width = 10, height = 5)
+ggsave("output/Fig2F_combined.png",              plot = p_2F,  width = 10, height = 5, dpi = 300)
+```
+

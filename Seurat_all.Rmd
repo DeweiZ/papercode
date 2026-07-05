@@ -1,0 +1,91 @@
+---
+title: "Seurat_1"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F,fig.width = 10)
+```
+
+###首先载入需要的包
+
+```{r}
+rm(list = ls()) 
+library(Seurat)
+library(patchwork)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+```
+
+```{r}
+load("stepout/pbmc_NSFK_AN.Rdata")
+skdata <- subset(pbmc_NSFK, !(group %in% c("F", "N")))
+color <- c( "#9eaad1","#f59790", "#dacfe5", "#f5dbb6", "#cde2e8", "#C8D4E9","#b8e0c8", "#f2c4ce", "#e8e0b5"  )
+
+skdata@active.ident <- ordered(skdata@active.ident,c("Smooth muscle cells","Keratinocytes","Fibroblasts","Endothelial cells","Mast cells","Sweat gland cells" ,"Neuron" ,"Mononeuclear phagocytes","T cells"))
+
+UMAPPlot(skdata,split.by = "group",pt.size = 0.01, cols = color)
+UMAPPlot(skdata,pt.size = 0.01, cols = color)
+dim(skdata)
+```
+
+# 百分比堆积条形图 分组 
+```{r}
+
+cluster  <- Idents(skdata)
+name <- as.character(skdata@meta.data[["group"]])
+b <- as.data.frame(cluster,name)
+b$number <- 1
+b$name <- row.names(b)
+b <- ddply(b,'name',transform,percent = 1/sum(number)*100)
+
+levels(b$cluster)
+b$cluster <- ordered(b$cluster,c("Smooth muscle cells","Keratinocytes","Fibroblasts","Endothelial cells","Mast cells","Sweat gland cells" ,"Neuron" ,"Mononeuclear phagocytes","T cells"))
+b$name <- ordered(b$name,c("S","K"))
+
+p5 <- ggplot(b,aes(x =name,y=percent,fill= cluster))+
+  geom_bar(stat="identity",position="stack")+
+  scale_fill_manual(values = color)+
+  theme_bw()+
+  theme_classic()+
+  theme(axis.ticks.length=unit(0.5,'cm'))+
+  guides(fill=guide_legend(title=NULL));p5
+
+ggsave(p5,filename = "output/p5.jpg",width = 10,height = 5)
+
+```
+
+#细胞比例图
+```{r}
+
+# 提取 meta.data
+meta <- skdata@meta.data
+meta$cluster <- Idents(skdata)
+meta$group <- factor(meta$group, levels = c("S", "K"))
+meta$cluster <- factor(meta$cluster, levels = c("Smooth muscle cells","Keratinocytes","Fibroblasts","Endothelial cells","Mast cells","Sweat gland cells" ,"Neuron" ,"Mononeuclear phagocytes","T cells"))
+
+# 1. 计算各组中各类细胞的比例 (自动处理百分比，无需除以样本数)
+cell_prop <- meta %>%
+  group_by(group, cluster) %>%
+  dplyr::summarise(count = n(), .groups = 'drop') %>%
+  group_by(group) %>%
+  mutate(percent = count / sum(count) * 100) # 计算细胞占该组总细胞的百分比
+# --- 2. 绘制特定的内皮细胞 (Endo) 比例图 ---
+# 直接从上面算好的比例数据框中提取内皮细胞的数据
+endo_prop <- cell_prop %>% 
+  filter(cluster == "Endothelial cells")
+
+endo_p <- ggplot(endo_prop, aes(x = group, y = percent, fill = group)) +
+  geom_bar(stat = "identity", width = 0.5) + # 这里的 percent 已经是科学的细胞占比了
+  scale_fill_manual(values = c("S" = "#F5A8A8", "K" = "#72BCD5")) + # 给S和K分别指定颜色
+  coord_flip() +
+  labs(x = "Group", y = "Proportion of Endothelial cells (%)") +
+  theme_classic()
+
+print(endo_p)
+
+```
+

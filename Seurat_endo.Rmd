@@ -1,0 +1,445 @@
+---
+title: "Seurat_4"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F,fig.width = 10)
+```
+
+###首先载入需要的包
+
+```{r}
+rm(list = ls()) 
+library(Seurat)
+library(devtools)
+library(SeuratData)
+library(patchwork)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(clustree)
+library(ggplot2)
+library(AnnotationDbi)  
+library(clusterProfiler)  
+library(org.Hs.eg.db)
+library(ggrepel)
+library(stringr)
+```
+
+#Endothelial_cells
+
+```{r}
+###
+rm(list = ls()) 
+pbmc_NSFK_Endothelial_cells <- readRDS("stepout/pbmc_NSFK_Endothelial_cells.Rds")
+sk_endo <- subset(pbmc_NSFK_Endothelial_cells, !(group %in% c("F", "N")))
+color <- c( "#9eaad1","#f59790", "#dacfe5", "#f5dbb6", "#cde2e8", "#C8D4E9","#b8e0c8", "#f2c4ce", "#e8e0b5"  )
+DimPlot(sk_endo, reduction = "umap",pt.size = 0.01, cols = color)
+UMAPPlot(sk_endo,split.by = "group",pt.size = 0.01, cols = color)
+```
+
+```{r}
+
+# 比较K vs S  
+KSmarkers <- FindMarkers(  
+  object = sk_endo,  
+  ident.1 = "K",  # 实验组/处理组 
+  ident.2 = "S",  # 对照组
+  group.by = "group"  # 假设分组信息存储在"group"列
+)  
+
+# 保存原始差异分析结果  
+write.csv(KSmarkers, "output/markers_full_KS.csv", row.names = TRUE)
+```
+
+```{r}
+# 假设您的差异分析结果已经保存在 KSmarkers 中
+# 1. 整理数据，添加显著性分组
+plot_data <- KSmarkers %>%
+  # 将行名（基因名）提取为新的一列
+  mutate(gene = rownames(.)) %>%
+  mutate(
+    # 计算 -log10(p_val_adj)，加上极小值防止 p=0 时计算报错
+    logP = -log10(p_val_adj + 1e-300), 
+    
+    # 设定上下调的分组依据 (P<0.05 且 log2FC绝对值>1)
+    Significance = case_when(
+      p_val_adj < 0.05 & avg_log2FC > 1 ~ "Up-regulated",
+      p_val_adj < 0.05 & avg_log2FC < -1 ~ "Down-regulated",
+      TRUE ~ "Not Significant"
+    )
+  )
+
+table(plot_data$Significance)
+
+# 2. 指定你想标记的基因
+genes_to_label <- c("DUSP1")
+
+# 3. 开始画图
+volcano_plot <- ggplot(plot_data, aes(x = avg_log2FC, y = logP, color = Significance)) +
+  # 画所有的点
+  geom_point(alpha = 0.7, size = 1.5) +
+  # 自定义点颜色 (红色上调，蓝色下调，灰色不显著)
+  scale_color_manual(values = c("Up-regulated" = "#f59790", 
+                                "Down-regulated" = "#9eaad1", 
+                                "Not Significant" = "#CCCCCC")) +
+                                
+  # 阈值辅助线 (虚线)
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "gray50", size = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray50", size = 0.5) +
+  
+  # 核心：使用 ggrepel 标记指定基因
+  geom_text_repel(
+    data = filter(plot_data, gene %in% genes_to_label),
+    aes(label = gene),
+    color = "black",            # 标签文本颜色
+    size = 5,                   # 字体大小
+    fontface = "italic",        # 基因名斜体
+    box.padding = 0.8,          # 标签外围空白，防止重叠
+    point.padding = 0.5,        # 标签离点的距离
+    segment.color = "black",    # 连接线的颜色
+    arrow = arrow(length = unit(0.015, "npc")) # 连接线带个小箭头
+  ) +
+  # 图像美化主题
+  theme_classic() +
+  labs(
+    title = "Volcano Plot of K vs S",
+    x = "Average Log2 Fold Change",
+    y = "-Log10(Adjusted P-value)"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    legend.position = "right",
+    legend.title = element_blank()
+  )
+
+# 显示图像
+print(volcano_plot)
+
+# 保存图像为 PDF 或 PNG
+ggsave("output/Volcano_K_vs_S_DUSP1.pdf", plot = volcano_plot, width = 7, height = 6)
+ggsave("output/Volcano_K_vs_S_DUSP1.png", plot = volcano_plot, width = 7, height = 6, dpi = 300)
+```
+
+```{r}
+# 1. 提取DUSP1在K和S两组中的表达量
+DefaultAssay(sk_endo) <- "RNA"
+dusp1_expr <- FetchData(
+  object = sk_endo,
+  vars = "DUSP1",
+  layer = "data"
+)
+
+# 2. 添加分组信息
+dusp1_data <- dusp1_expr %>%
+  rownames_to_column("cell_id") %>%
+  mutate(group = sk_endo$group) %>%
+  filter(group %in% c("K", "S"))
+
+# 3. 计算每组的平均表达量、标准差、标准误
+dusp1_summary <- dusp1_data %>%
+  group_by(group) %>%
+  summarise(
+    mean_expr = mean(DUSP1, na.rm = TRUE),
+    sd_expr = sd(DUSP1, na.rm = TRUE),
+    se_expr = sd_expr / sqrt(n()),
+    n = n()
+  )
+
+# 4. 计算组间P值
+# 方式一：直接用Wilcoxon秩和检验（与Seurat FindMarkers默认方法一致）
+wilcox_res <- wilcox.test(DUSP1 ~ group, data = dusp1_data)
+p_value <- wilcox_res$p.value
+
+# 方式二（备选）：如果想直接用KSmarkers里已经算好的p_val_adj
+# p_value <- KSmarkers["DUSP1", "p_val_adj"]
+
+# 格式化p值显示（科学计数法或星号）
+p_label <- case_when(
+  p_value < 0.0001 ~ "****",
+  p_value < 0.001  ~ "***",
+  p_value < 0.01   ~ "**",
+  p_value < 0.05   ~ "*",
+  TRUE             ~ "ns"
+)
+
+p_text <- paste0("P = ", formatC(p_value, format = "e", digits = 2), 
+                  "  (", p_label, ")")
+
+# 5. 确定标注的y轴高度（略高于误差条最高点）
+y_max <- max(dusp1_summary$mean_expr + dusp1_summary$se_expr) * 1.15
+y_bracket <- y_max * 1.05
+
+# 6. 绘制柱形图并添加P值标注
+dusp1_barplot <- ggplot(dusp1_summary, aes(x = group, y = mean_expr, fill = group)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  geom_errorbar(
+    aes(ymin = mean_expr - se_expr, ymax = mean_expr + se_expr),
+    width = 0.2,
+    size = 0.8,
+    color = "black"
+  ) +
+  scale_fill_manual(values = c("K" = "#3498db", "S" = "#e74c3c")) +
+  theme_classic() +
+  labs(
+    title = "Average Expression of DUSP1 in K vs S",
+    x = "Group",
+    y = "Average Expression Level",
+    fill = "Group"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    legend.position = "right"
+  ) +
+  # 添加显著性括号
+  geom_segment(aes(x = 1, xend = 2, y = y_bracket, yend = y_bracket),
+               color = "black", size = 0.6) +
+  geom_segment(aes(x = 1, xend = 1, y = y_bracket, yend = y_bracket * 0.97),
+               color = "black", size = 0.6) +
+  geom_segment(aes(x = 2, xend = 2, y = y_bracket, yend = y_bracket * 0.97),
+               color = "black", size = 0.6) +
+  annotate("text", x = 1.5, y = y_bracket * 1.05, 
+           label = p_text, size = 4.2, fontface = "bold") +
+  # 扩展y轴上限，避免标注被截断
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.2)))
+
+# 7. 显示图像
+print(dusp1_barplot)
+
+# 8. 保存图像
+ggsave("output/DUSP1_expression_K_vs_S.pdf", plot = dusp1_barplot, width = 6, height = 5)
+ggsave("output/DUSP1_expression_K_vs_S.png", plot = dusp1_barplot, width = 6, height = 5, dpi = 300)
+
+# 9. 打印数值摘要
+print(dusp1_summary)
+cat("Wilcoxon test p-value:", p_value, "\n")
+```
+
+
+```{r}
+
+fig1I_split <- FeaturePlot(
+  object    = sk_endo,
+  features  = "DUSP1",
+  split.by  = "group",
+  reduction = "umap",
+  pt.size   = 0.3,
+  cols      = c("lightgrey", "#c0392b")
+) &
+  theme_classic() &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12))
+
+print(fig1I_split)
+
+ggsave("output/Fig1I_DUSP1_FeaturePlot_split.pdf", plot = fig1I_split, width = 10, height = 5)
+ggsave("output/Fig1I_DUSP1_FeaturePlot_split.png", plot = fig1I_split, width = 10, height = 5, dpi = 300)
+
+
+# ============================================================
+# Figure 1J: DUSP1 与内皮 marker 共表达分析
+# ============================================================
+
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(patchwork)
+
+# ---------- 1. 提取共表达数据 ----------
+endo_markers <- c("PECAM1", "VWF", "KDR")
+
+expr_data <- FetchData(
+  object = sk_endo,
+  vars   = c("DUSP1", endo_markers, "group")
+)
+
+# ---------- 2. DUSP1 vs PECAM1 散点图（含相关性） ----------
+make_scatter <- function(data, marker, point_col = "#5a7fc1") {
+  cor_val <- cor(data[["DUSP1"]], data[[marker]],
+                 method = "pearson", use = "complete.obs")
+  
+  ggplot(data, aes(x = .data[[marker]], y = DUSP1)) +
+    geom_point(alpha = 0.4, size = 0.8, color = point_col) +
+    geom_smooth(method = "lm", se = TRUE,
+                color = "#c0392b", fill = "#f5c6c6", linewidth = 0.8) +
+    annotate("text",
+             x = Inf, y = Inf,
+             hjust = 1.1, vjust = 1.5,
+             label = paste0("r = ", round(cor_val, 3)),
+             size = 4, fontface = "italic", color = "gray20") +
+    labs(
+      title = paste0("DUSP1 vs ", marker),
+      x     = paste0(marker, " Expression"),
+      y     = "DUSP1 Expression"
+    ) +
+    theme_classic() +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12))
+}
+
+p_pecam1 <- make_scatter(expr_data, "PECAM1", "#5a7fc1")
+p_vwf    <- make_scatter(expr_data, "VWF",    "#7fbf7f")
+p_kdr    <- make_scatter(expr_data, "KDR",    "#bf9f5f")
+
+
+# ---------- 3. Dot Plot：DUSP1 & 内皮 marker 在 S/K 分组中的表达 ----------
+# 将 group 设为 Idents 以使用 DotPlot
+sk_endo_copy <- sk_endo
+Idents(sk_endo_copy) <- sk_endo_copy$group
+
+dot_genes <- c("DUSP1", "PECAM1", "VWF", "KDR")
+
+p_dot <- DotPlot(
+  object   = sk_endo_copy,
+  features = dot_genes,
+  cols     = c("lightgrey", "#c0392b"),
+  dot.scale = 8
+) +
+  coord_flip() +
+  labs(
+    title = "DUSP1 & Endothelial Markers\n(S vs K)",
+    x     = "Gene",
+    y     = "Group"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text.x = element_text(size = 11, face = "bold"),
+    axis.text.y = element_text(size = 11, face = "italic")
+  )
+
+
+# ---------- 4. 拼图组合为 Figure 1J ----------
+fig1J <- (p_pecam1 | p_vwf | p_kdr) / p_dot +
+  plot_annotation(
+    title   = "Figure 1J",
+    caption = "图1J. DUSP1 与内皮细胞标志物的共表达分析。通过 DUSP1 与 PECAM1/CD31、VWF 或 KDR 等内皮\n标志基因的表达关系，进一步提示 DUSP1 在内皮细胞中具有表达，并在瘢痕疙瘩内皮细胞中降低。",
+    theme   = theme(
+      plot.title   = element_text(hjust = 0.5, face = "bold", size = 14),
+      plot.caption = element_text(hjust = 0, size = 9, color = "gray30")
+    )
+  )
+
+print(fig1J)
+
+ggsave("output/Fig1J_DUSP1_Coexpression.pdf", plot = fig1J, width = 14, height = 10)
+ggsave("output/Fig1J_DUSP1_Coexpression.png", plot = fig1J, width = 14, height = 10, dpi = 300)
+```
+
+
+```{r}
+# ============================================================
+# 富集分析 + Figure 1K 出图（完整版）
+# ============================================================
+
+# =========================================================================
+# 1. 富集分析
+# =========================================================================
+
+# 筛选显著差异基因并转换 ID
+sig_genes <- KSmarkers %>%
+  filter(p_val_adj < 0.05) %>%
+  rownames()
+
+entrez_map <- bitr(sig_genes,
+                   fromType = "SYMBOL",
+                   toType   = "ENTREZID",
+                   OrgDb    = org.Hs.eg.db)
+
+# GO 富集
+go_res <- enrichGO(
+  gene          = entrez_map$ENTREZID,
+  OrgDb         = org.Hs.eg.db,
+  ont           = "ALL",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05
+)
+
+# KEGG 富集
+kegg_res <- enrichKEGG(
+  gene         = entrez_map$ENTREZID,
+  organism     = "hsa",
+  pvalueCutoff = 0.05
+)
+
+# 保存结果
+write.csv(go_res@result,   "output/SK_GO.csv",   row.names = FALSE)
+write.csv(kegg_res@result, "output/SK_KEGG.csv", row.names = FALSE)
+
+SKgo_enrich   <- go_res@result
+SKkegg_enrich <- kegg_res@result
+
+# =========================================================================
+# 2. 关键词筛选函数
+# =========================================================================
+
+keywords <- "MAPK|oxidative stress|angiogenesis|blood vessel|extracellular matrix|TGF|cell migration"
+
+filter_focus <- function(df, n = 10) {
+  result <- df %>%
+    filter(p.adjust < 0.05,
+           str_detect(Description, regex(keywords, ignore_case = TRUE))) %>%
+    arrange(p.adjust) %>%
+    slice_head(n = n)
+  
+  # 关键词命中不足时，用 Count 最高的条目补足
+  if (nrow(result) < 3) {
+    result <- df %>%
+      filter(p.adjust < 0.05) %>%
+      arrange(desc(Count)) %>%
+      slice_head(n = n)
+  }
+  result
+}
+
+# =========================================================================
+# 3. 通用柱形图函数
+# =========================================================================
+
+bar_plot <- function(df, title, low_col = "#72BCD5", high_col = "#F5A8A8") {
+  df %>%
+    arrange(Count) %>%
+    mutate(Description = factor(str_wrap(Description, 40),
+                                levels = str_wrap(Description, 40))) %>%
+    ggplot(aes(x = Count, y = Description, fill = -log10(p.adjust))) +
+    geom_col(color = "black", linewidth = 0.2, width = 0.7) +
+    geom_text(aes(label = Count), hjust = -0.2, size = 3.2, color = "gray20") +
+    scale_fill_gradient(low = low_col, high = high_col, name = "-log10\n(P.adj)") +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
+    theme_bw(base_size = 11) +
+    labs(title = title, x = "Gene Count", y = NULL) +
+    theme(
+      plot.title         = element_text(hjust = 0.5, face = "bold", size = 12),
+      axis.text.y        = element_text(size = 9.5, color = "black"),
+      panel.grid.major.y = element_blank()
+    )
+}
+
+# =========================================================================
+# 4. Figure 1K 出图
+# =========================================================================
+
+p_GO   <- bar_plot(filter_focus(SKgo_enrich,   n = 12), "GO Enrichment (S vs K)")
+p_KEGG <- bar_plot(filter_focus(SKkegg_enrich, n = 10), "KEGG Enrichment (S vs K)",
+                   low_col = "#a8d8a8", high_col = "#F5A8A8")
+
+fig1K <- p_GO + p_KEGG +
+  plot_layout(widths = c(1.3, 1)) +
+  plot_annotation(
+    caption = "图1K. 瘢痕疙瘩内皮细胞差异表达基因 GO/KEGG 富集分析。富集结果显示，差异基因主要涉及\n血管生成、氧化应激反应、MAPK 信号、细胞迁移、细胞外基质组织及 TGF-β 相关纤维化调控等过程。",
+    theme   = theme(plot.caption = element_text(hjust = 0, size = 9, color = "gray30"))
+  )
+
+print(fig1K)
+
+# =========================================================================
+# 5. 保存
+# =========================================================================
+ggsave("output/Fig1K_GO_KEGG_focused.pdf", fig1K, width = 14, height = 7)
+ggsave("output/Fig1K_GO_KEGG_focused.png", fig1K, width = 14, height = 7, dpi = 300)
+```
+
+
