@@ -1,16 +1,4 @@
----
-title: "GSE84756"
-author: "zdw"
-date: "2023-03-20"
-output: html_document
-editor_options: 
-  chunk_output_type: console
----
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,warning = F,message = F,fig.width = 10)
-options(stringsAsFactors = F)
-```
 #加载包
 ```{r}
 library(GEOquery)
@@ -501,12 +489,3 @@ cat("全部 GSEA 图已保存\n")
 
 cat("Fig2J 保存完成！\n")
 ```
-
-
-
-
-
-
-
-
-
